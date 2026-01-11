@@ -81,7 +81,7 @@ export default function ParentChildManager() {
     }
 
     try {
-      const newParent = createParentUser(parentForm);
+      const newParent = await createParentUser(parentForm);
       
       setParents(prev => [...prev, newParent]);
       setParentForm({
