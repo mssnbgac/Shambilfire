@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, UserRole } from '@/types';
 import { findCreatedUser } from '@/lib/demoUsers';
+import { findSharedUser, initializeSharedUsers, syncLocalToShared } from '@/lib/sharedUserStorage';
 import toast from 'react-hot-toast';
 
 interface AuthContextType {
@@ -105,24 +106,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check for stored demo user
-    if (isDemoMode) {
-      const storedUser = localStorage.getItem('demoUser');
-      if (storedUser) {
-        try {
-          const userData = JSON.parse(storedUser);
-          setUser(userData);
-          setFirebaseUser({ uid: userData.id });
-        } catch (error) {
-          console.error('Error parsing stored user:', error);
-          localStorage.removeItem('demoUser');
+    const initializeAuth = async () => {
+      // Check for stored demo user
+      if (isDemoMode) {
+        // Initialize shared users and sync old data
+        await initializeSharedUsers();
+        await syncLocalToShared();
+        
+        const storedUser = localStorage.getItem('demoUser');
+        if (storedUser) {
+          try {
+            const userData = JSON.parse(storedUser);
+            setUser(userData);
+            setFirebaseUser({ uid: userData.id });
+          } catch (error) {
+            console.error('Error parsing stored user:', error);
+            localStorage.removeItem('demoUser');
+          }
         }
+        setLoading(false);
+      } else {
+        // Real Firebase auth would go here
+        setLoading(false);
       }
-      setLoading(false);
-    } else {
-      // Real Firebase auth would go here
-      setLoading(false);
-    }
+    };
+    
+    initializeAuth();
   }, []);
 
   const login = async (email: string, password: string) => {
@@ -143,21 +152,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         console.log('Demo user found:', demoUser ? 'YES' : 'NO');
         
-        // If not found in hardcoded users, check localStorage for created users
+        // If not found in hardcoded users, check API for created users
         if (!demoUser) {
-          console.log('Checking created users...');
-          const createdUser = findCreatedUser(normalizedEmail, normalizedPassword);
-          if (createdUser) {
-            console.log('Created user found:', createdUser.email);
-            demoUser = createdUser;
-          } else {
-            console.log('No created user found');
+          console.log('Checking API for created users...');
+          try {
+            const response = await fetch(`/api/users?email=${encodeURIComponent(normalizedEmail)}&password=${encodeURIComponent(normalizedPassword)}`);
+            if (response.ok) {
+              const data = await response.json();
+              if (data.user) {
+                console.log('API user found:', data.user.email);
+                demoUser = data.user;
+              }
+            }
+          } catch (apiError) {
+            console.log('API not available, checking local storage...');
+          }
+          
+          // Fallback to local storage if API fails
+          if (!demoUser) {
+            console.log('Checking local storage for created users...');
+            const createdUser = findCreatedUser(normalizedEmail, normalizedPassword);
+            if (createdUser) {
+              console.log('Local user found:', createdUser.email);
+              demoUser = createdUser;
+            } else {
+              console.log('No created user found');
+            }
           }
         }
         
         if (!demoUser) {
           console.log('No user found for login');
-          throw new Error('Invalid email or password. Check your credentials or use demo accounts from login page.');
+          throw new Error('Invalid email or password. Please check your credentials and try again.');
         }
         
         console.log('Login successful for:', demoUser.email);

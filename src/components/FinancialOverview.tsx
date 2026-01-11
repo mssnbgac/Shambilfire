@@ -46,10 +46,13 @@ export default function FinancialOverview() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Initialize demo data only if it doesn't exist
-    initializeDemoPayments();
     loadFinancialData();
   }, [selectedSession, selectedTerm]);
+
+  // Initialize demo data only once when component mounts
+  useEffect(() => {
+    initializeDemoPayments();
+  }, []);
 
   const loadFinancialData = () => {
     setLoading(true);

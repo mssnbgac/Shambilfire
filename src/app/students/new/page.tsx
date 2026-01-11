@@ -5,6 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useForm } from 'react-hook-form';
 import { NIGERIAN_CLASSES } from '@/types';
 import { saveCreatedUser } from '@/lib/demoUsers';
+import { addSharedUser } from '@/lib/sharedUserStorage';
 import toast from 'react-hot-toast';
 
 interface StudentFormData {
@@ -71,12 +72,34 @@ export default function NewStudentPage() {
         medicalConditions: data.medicalConditions?.trim() || '',
       };
 
-      // Save user using utility function
-      const saved = saveCreatedUser(newUser);
-      
-      if (!saved) {
-        toast.error('A user with this email already exists');
-        return;
+      // Save user using API first, then fallback to local storage
+      try {
+        const response = await fetch('/api/users', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(newUser),
+        });
+        
+        if (response.ok) {
+          console.log('User saved to API successfully');
+        } else {
+          const errorData = await response.json();
+          if (errorData.error === 'Email already exists') {
+            toast.error('A user with this email already exists');
+            return;
+          }
+          throw new Error('API save failed');
+        }
+      } catch (apiError) {
+        console.log('API not available, using local storage...');
+        // Fallback to local storage
+        const saved = saveCreatedUser(newUser);
+        if (!saved) {
+          toast.error('A user with this email already exists');
+          return;
+        }
       }
 
       console.log('New student data:', { ...data, password: '[HIDDEN]' });

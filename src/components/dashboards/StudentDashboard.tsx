@@ -128,14 +128,18 @@ export default function StudentDashboard() {
       // Add demo notifications for testing if none exist
       setTimeout(() => {
         addDemoNotifications();
-      }, 1000);
+      }, 500);
     }
-    // Initialize demo data for testing
+  }, [user]);
+
+  // Initialize demo data only once when component mounts
+  useEffect(() => {
+    // Initialize demo data for testing - only runs once
     initializeDemoGrades();
     initializeDemoPayments();
     initializeDemoTimetable();
     initializeDemoExams();
-  }, [user]);
+  }, []); // Empty dependency array ensures this runs only once
 
   const loadNotifications = () => {
     if (user?.id) {
@@ -147,103 +151,97 @@ export default function StudentDashboard() {
 
   // Add demo notifications for testing (only if no notifications exist)
   const addDemoNotifications = () => {
-    if (user?.id && notifications.length === 0) {
-      // Create some demo notifications
-      const demoNotifications = [
-        {
-          studentId: user.id,
-          type: 'result' as const,
-          academicSession: '2024/2025',
-          term: 'First Term',
-          message: 'Your First Term results for 2024/2025 are ready to download!'
-        },
-        {
-          studentId: user.id,
-          type: 'payment' as const,
-          academicSession: '2024/2025',
-          term: 'Second Term',
-          message: 'Your payment receipt for Second Term, 2024/2025 is ready to download!'
-        },
-        {
-          studentId: user.id,
-          type: 'both' as const,
-          academicSession: '2023/2024',
-          term: 'Third Term',
-          message: 'Your Third Term results and payment receipt for 2023/2024 are ready to download!'
-        }
-      ];
+    if (!user?.id || notifications.length > 0) return;
 
-      // Add notifications using the createNotification function
-      const { createNotification } = require('@/lib/notificationSystem');
-      demoNotifications.forEach(notif => {
-        createNotification(notif);
-      });
-      
-      // Reload notifications
-      loadNotifications();
-    }
+    // Create some demo notifications
+    const demoNotifications = [
+      {
+        studentId: user.id,
+        type: 'result' as const,
+        academicSession: '2024/2025',
+        term: 'First Term',
+        message: 'Your First Term results for 2024/2025 are ready to download!'
+      },
+      {
+        studentId: user.id,
+        type: 'payment' as const,
+        academicSession: '2024/2025',
+        term: 'Second Term',
+        message: 'Your payment receipt for Second Term, 2024/2025 is ready to download!'
+      },
+      {
+        studentId: user.id,
+        type: 'both' as const,
+        academicSession: '2023/2024',
+        term: 'Third Term',
+        message: 'Your Third Term results and payment receipt for 2023/2024 are ready to download!'
+      }
+    ];
+
+    // Add notifications using the createNotification function
+    const { createNotification } = require('@/lib/notificationSystem');
+    demoNotifications.forEach(notif => {
+      createNotification(notif);
+    });
+    
+    // Reload notifications
+    loadNotifications();
   };
 
   const loadTodaySchedule = () => {
-    if (studentProfile?.class) {
-      // Try different class format variations to match timetable data
-      const classVariations = [
-        studentProfile.class,
-        studentProfile.class.replace(/\s+/g, ''), // Remove spaces
-        studentProfile.class.replace(/\s+/g, ' '), // Normalize spaces
-        studentProfile.class.toUpperCase(),
-        studentProfile.class.toLowerCase()
-      ];
-      
-      let schedule: TimetableEntry[] = [];
-      
-      // Try each variation until we find a match
-      for (const classVariation of classVariations) {
-        schedule = getTodayScheduleForClass(classVariation);
-        if (schedule.length > 0) {
-          break;
-        }
-      }
-      
-      setTodaySchedule(schedule);
-      
-      // If no schedule found, log for debugging
-      if (schedule.length === 0) {
-        console.log('No timetable found for class:', studentProfile.class);
-        console.log('Tried variations:', classVariations);
+    if (!studentProfile?.class) {
+      setTodaySchedule([]);
+      return;
+    }
+
+    // Try different class format variations to match timetable data
+    const classVariations = [
+      studentProfile.class,
+      studentProfile.class.replace(/\s+/g, ''), // Remove spaces
+      studentProfile.class.replace(/\s+/g, ' '), // Normalize spaces
+      studentProfile.class.toUpperCase(),
+      studentProfile.class.toLowerCase()
+    ];
+    
+    let schedule: TimetableEntry[] = [];
+    
+    // Try each variation until we find a match
+    for (const classVariation of classVariations) {
+      schedule = getTodayScheduleForClass(classVariation);
+      if (schedule.length > 0) {
+        break;
       }
     }
+    
+    setTodaySchedule(schedule);
   };
 
   const loadUpcomingExams = () => {
-    if (studentProfile?.class) {
-      // Try different class format variations to match exam data
-      const classVariations = [
-        studentProfile.class,
-        studentProfile.class.replace(/\s+/g, ''), // Remove spaces
-        studentProfile.class.replace(/\s+/g, ' '), // Normalize spaces
-        studentProfile.class.toUpperCase(),
-        studentProfile.class.toLowerCase()
-      ];
-      
-      let exams: ExamSchedule[] = [];
-      
-      // Try each variation until we find a match
-      for (const classVariation of classVariations) {
-        exams = getUpcomingExamsForClass(classVariation);
-        if (exams.length > 0) {
-          break;
-        }
-      }
-      
-      setUpcomingExams(exams);
-      
-      // If no exams found, log for debugging
-      if (exams.length === 0) {
-        console.log('No upcoming exams found for class:', studentProfile.class);
-        console.log('Tried variations:', classVariations);
+    if (!studentProfile?.class) {
+      setUpcomingExams([]);
+      return;
+    }
+
+    // Try different class format variations to match exam data
+    const classVariations = [
+      studentProfile.class,
+      studentProfile.class.replace(/\s+/g, ''), // Remove spaces
+      studentProfile.class.replace(/\s+/g, ' '), // Normalize spaces
+      studentProfile.class.toUpperCase(),
+      studentProfile.class.toLowerCase()
+    ];
+    
+    let exams: ExamSchedule[] = [];
+    
+    // Try each variation until we find a match
+    for (const classVariation of classVariations) {
+      exams = getUpcomingExamsForClass(classVariation);
+      if (exams.length > 0) {
+        break;
       }
     }
+    
+    setUpcomingExams(exams);
   };
 
   // Add a function to refresh exams (can be called when exam officer updates)
@@ -308,14 +306,15 @@ export default function StudentDashboard() {
         createdAt: grade.createdAt
       }));
 
-      // Calculate average score
-      const totalScore = formattedGrades.reduce((sum, grade) => sum + (grade.total || 0), 0);
-      const averageScore = formattedGrades.length > 0 ? totalScore / formattedGrades.length : 0;
+      // Calculate average score only if there are grades
+      const averageScore = formattedGrades.length > 0 
+        ? Math.round(formattedGrades.reduce((sum, grade) => sum + (grade.total || 0), 0) / formattedGrades.length)
+        : 0;
 
       setStats({
         currentGrade: studentProfile?.class || 'Not Assigned',
         totalSubjects: 8, // This would be calculated from enrolled subjects
-        averageScore: Math.round(averageScore),
+        averageScore,
         classPosition: 5, // This would be calculated from class rankings
         recentGrades: formattedGrades,
         upcomingExams: [] // This will be loaded separately from exam storage

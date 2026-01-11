@@ -57,11 +57,13 @@ export default function TimetableManager() {
     loadTimetableData();
   }, [selectedClass]);
 
+  // Initialize demo data only once when component mounts
+  useEffect(() => {
+    initializeDemoTimetable();
+  }, []);
+
   const loadTimetableData = () => {
     try {
-      // Initialize demo data if needed
-      initializeDemoTimetable();
-      
       // Get all timetable data
       const allTimetableData = getTimetableData();
       

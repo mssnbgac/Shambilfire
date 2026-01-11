@@ -42,10 +42,13 @@ export default function PaymentConfirmationManager() {
   });
 
   useEffect(() => {
-    // Initialize demo data only if it doesn't exist
-    initializeDemoPayments();
     loadPayments();
   }, [selectedSession, selectedTerm]);
+
+  // Initialize demo data only once when component mounts
+  useEffect(() => {
+    initializeDemoPayments();
+  }, []);
 
   const loadPayments = () => {
     setLoading(true);

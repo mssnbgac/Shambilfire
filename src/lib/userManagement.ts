@@ -1,5 +1,6 @@
 // Enhanced user management system with search and update capabilities
 import { CreatedUser, getCreatedUsers, saveCreatedUser } from './demoUsers';
+import { addSharedUser } from './sharedUserStorage';
 
 export interface UserUpdateData {
   firstName?: string;
@@ -77,14 +78,14 @@ export const getUsersByRole = (role: string): CreatedUser[] => {
   return users.filter(user => user.role === role);
 };
 
-export const createParentUser = (parentData: {
+export const createParentUser = async (parentData: {
   firstName: string;
   lastName: string;
   email: string;
   password: string;
   phoneNumber?: string;
   address?: string;
-}): CreatedUser => {
+}): Promise<CreatedUser> => {
   const newParent: CreatedUser = {
     id: `parent-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
     email: parentData.email.toLowerCase().trim(),
@@ -99,7 +100,9 @@ export const createParentUser = (parentData: {
   };
   
   const success = saveCreatedUser(newParent);
-  if (!success) {
+  const sharedSuccess = await addSharedUser(newParent);
+  
+  if (!success && !sharedSuccess) {
     throw new Error('Failed to create parent user - email may already exist');
   }
   
