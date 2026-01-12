@@ -29,6 +29,12 @@ export default function Home() {
   const { getSectionByType, getActiveNewsEvents, sections, loading: contentLoading } = useContent();
   const router = useRouter();
   const [activeTab, setActiveTab] = useState('News & Events');
+  const [homepageContent, setHomepageContent] = useState<any>(null);
+
+  useEffect(() => {
+    // Load homepage content from API
+    loadHomepageContent();
+  }, []);
 
   useEffect(() => {
     // Check if user explicitly wants to view homepage via query parameter
@@ -40,6 +46,51 @@ export default function Home() {
       router.push('/dashboard');
     }
   }, [user, loading, router]);
+
+  const loadHomepageContent = async () => {
+    try {
+      // Try API first
+      const response = await fetch('/api/homepage');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.homepage) {
+          setHomepageContent(data.homepage);
+        }
+      } else {
+        // Use default content if API fails
+        setHomepageContent({
+          heroTitle: 'Welcome to Shambil Pride Academy',
+          heroSubtitle: 'Excellence in Education, Character, and Leadership',
+          heroDescription: 'Nurturing young minds for a brighter future through quality education and moral values.',
+          aboutTitle: 'About Our School',
+          aboutContent: 'Shambil Pride Academy is committed to providing quality education that develops both academic excellence and strong moral character.',
+          principalMessage: 'At Shambil Pride Academy, we believe every child has the potential to excel.',
+          principalName: 'Dr. Amina Abdullahi',
+          principalTitle: 'Principal',
+          contactInfo: {
+            address: '45, Dan Masani Street, Birnin Gwari, Kaduna State, Nigeria',
+            phone: '+234 803 401 2480',
+            alternatePhone: '+234 807 938 7958',
+            email: 'Shehubala70@gmail.com'
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error loading homepage content:', error);
+      // Use default content on error
+      setHomepageContent({
+        heroTitle: 'Welcome to Shambil Pride Academy',
+        heroSubtitle: 'Excellence in Education, Character, and Leadership',
+        heroDescription: 'Nurturing young minds for a brighter future through quality education and moral values.',
+        contactInfo: {
+          address: '45, Dan Masani Street, Birnin Gwari, Kaduna State, Nigeria',
+          phone: '+234 803 401 2480',
+          alternatePhone: '+234 807 938 7958',
+          email: 'Shehubala70@gmail.com'
+        }
+      });
+    }
+  };
 
   // Show loading while checking authentication and content
   if (loading || contentLoading) {

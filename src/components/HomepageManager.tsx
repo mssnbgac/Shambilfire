@@ -88,7 +88,26 @@ export default function HomepageManager() {
 
   useEffect(() => {
     loadMediaData();
+    loadHomepageContent();
   }, []);
+
+  const loadHomepageContent = async () => {
+    try {
+      // Try API first
+      const response = await fetch('/api/homepage');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.homepage) {
+          // Update sections based on API data
+          console.log('Loaded homepage content from API:', data.homepage);
+        }
+      } else {
+        console.log('API not available, using default content');
+      }
+    } catch (error) {
+      console.error('Error loading homepage content:', error);
+    }
+  };
 
   const loadMediaData = () => {
     // Demo media files

@@ -50,19 +50,30 @@ export default function PaymentConfirmationManager() {
     initializeDemoPayments();
   }, []);
 
-  const loadPayments = () => {
+  const loadPayments = async () => {
     setLoading(true);
     try {
-      const sessionPayments = getPaymentsBySessionAndTerm(selectedSession, selectedTerm);
-      setPayments(sessionPayments);
+      // Try API first
+      const response = await fetch(`/api/payments?session=${selectedSession}&term=${selectedTerm}`);
+      if (response.ok) {
+        const data = await response.json();
+        setPayments(data.payments || []);
+      } else {
+        // Fallback to localStorage
+        const sessionPayments = getPaymentsBySessionAndTerm(selectedSession, selectedTerm);
+        setPayments(sessionPayments);
+      }
     } catch (error) {
       console.error('Error loading payments:', error);
+      // Fallback to localStorage on error
+      const sessionPayments = getPaymentsBySessionAndTerm(selectedSession, selectedTerm);
+      setPayments(sessionPayments);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAddPayment = () => {
+  const handleAddPayment = async () => {
     if (!formData.studentName.trim() || !formData.admissionNumber.trim() || !formData.amount) {
       alert('Please fill in all required fields');
       return;
@@ -91,7 +102,27 @@ export default function PaymentConfirmationManager() {
       confirmedBy: user!.id,
     };
 
-    saveStudentPayment(newPayment);
+    try {
+      // Try API first
+      const response = await fetch('/api/payments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(newPayment),
+      });
+      
+      if (response.ok) {
+        console.log('Payment saved to API successfully');
+      } else {
+        throw new Error('API save failed');
+      }
+    } catch (apiError) {
+      console.log('API not available, using local storage...');
+      // Fallback to localStorage
+      saveStudentPayment(newPayment);
+    }
+
     loadPayments();
     resetForm();
     setShowAddForm(false);

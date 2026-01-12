@@ -38,17 +38,30 @@ export default function AdminExpenditureApproval() {
     }
   }, [user, selectedSession, selectedTerm]);
 
-  const loadRequests = () => {
+  const loadRequests = async () => {
     setLoading(true);
     try {
-      // Get all pending requests for the selected session
+      // Try API first
+      const response = await fetch(`/api/expenditures?session=${selectedSession}`);
+      if (response.ok) {
+        const data = await response.json();
+        setRequests(data.expenditures || []);
+      } else {
+        // Fallback to localStorage
+        const allRequests = expenditureStorage.getAllRequests();
+        const sessionRequests = allRequests.filter(req => 
+          req.academicSession === selectedSession
+        );
+        setRequests(sessionRequests);
+      }
+    } catch (error) {
+      console.error('Error loading requests:', error);
+      // Fallback to localStorage on error
       const allRequests = expenditureStorage.getAllRequests();
       const sessionRequests = allRequests.filter(req => 
         req.academicSession === selectedSession
       );
       setRequests(sessionRequests);
-    } catch (error) {
-      console.error('Error loading requests:', error);
     } finally {
       setLoading(false);
     }

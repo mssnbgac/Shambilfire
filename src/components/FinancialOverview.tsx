@@ -54,9 +54,41 @@ export default function FinancialOverview() {
     initializeDemoPayments();
   }, []);
 
-  const loadFinancialData = () => {
+  const loadFinancialData = async () => {
     setLoading(true);
     try {
+      // Try API first
+      const response = await fetch(`/api/finances?session=${selectedSession}&term=${selectedTerm}`);
+      if (response.ok) {
+        const data = await response.json();
+        setFinancialData(data.financialOverview);
+        
+        // Get payments from API
+        const paymentsResponse = await fetch(`/api/payments?session=${selectedSession}&term=${selectedTerm}`);
+        if (paymentsResponse.ok) {
+          const paymentsData = await paymentsResponse.json();
+          setPayments(paymentsData.payments || []);
+        }
+        
+        // Get expenditures from API
+        const expendituresResponse = await fetch(`/api/expenditures?session=${selectedSession}&term=${selectedTerm}`);
+        if (expendituresResponse.ok) {
+          const expendituresData = await expendituresResponse.json();
+          setExpenditures(expendituresData.expenditures || []);
+        }
+      } else {
+        // Fallback to localStorage
+        const overview = getFinancialOverview(selectedSession, selectedTerm);
+        const sessionPayments = getPaymentsBySessionAndTerm(selectedSession, selectedTerm);
+        const sessionExpenditures = expenditureStorage.getRequestsBySessionAndTerm(selectedSession, selectedTerm);
+        
+        setFinancialData(overview);
+        setPayments(sessionPayments);
+        setExpenditures(sessionExpenditures);
+      }
+    } catch (error) {
+      console.error('Error loading financial data:', error);
+      // Fallback to localStorage on error
       const overview = getFinancialOverview(selectedSession, selectedTerm);
       const sessionPayments = getPaymentsBySessionAndTerm(selectedSession, selectedTerm);
       const sessionExpenditures = expenditureStorage.getRequestsBySessionAndTerm(selectedSession, selectedTerm);
@@ -64,8 +96,6 @@ export default function FinancialOverview() {
       setFinancialData(overview);
       setPayments(sessionPayments);
       setExpenditures(sessionExpenditures);
-    } catch (error) {
-      console.error('Error loading financial data:', error);
     } finally {
       setLoading(false);
     }
