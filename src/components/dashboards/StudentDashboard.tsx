@@ -374,40 +374,54 @@ export default function StudentDashboard() {
         address: studentProfile.address
       };
 
-      // Get real grades from storage - try multiple ID formats
-      let studentGrades = getGradesByStudentAndSession(user?.id || '', session, term);
-      
-      // If no grades found with user.id, try with admission number
-      if (studentGrades.length === 0) {
-        studentGrades = getGradesByStudentAndSession(studentProfile.admissionNumber, session, term);
+      // Try API first for grades
+      let studentGrades: any[] = [];
+      try {
+        const response = await fetch(`/api/grades?studentId=${user?.id}&session=${session}&term=${term}`);
+        if (response.ok) {
+          const data = await response.json();
+          studentGrades = data.grades || [];
+        }
+      } catch (apiError) {
+        console.log('API not available, checking local storage...');
       }
-      
-      // If still no grades, try with student name
+
+      // Fallback to localStorage if API fails or no grades found
       if (studentGrades.length === 0) {
-        const allGrades = getStudentGrades();
-        studentGrades = allGrades.filter(grade => 
-          grade.studentName === `${user?.firstName} ${user?.lastName}` &&
-          grade.academicYear === session &&
-          grade.term === term
-        );
+        studentGrades = getGradesByStudentAndSession(user?.id || '', session, term);
+        
+        // If no grades found with user.id, try with admission number
+        if (studentGrades.length === 0) {
+          studentGrades = getGradesByStudentAndSession(studentProfile.admissionNumber, session, term);
+        }
+        
+        // If still no grades, try with student name
+        if (studentGrades.length === 0) {
+          const allGrades = getStudentGrades();
+          studentGrades = allGrades.filter(grade => 
+            grade.studentName === `${user?.firstName} ${user?.lastName}` &&
+            grade.academicYear === session &&
+            grade.term === term
+          );
+        }
       }
       
       let gradesForPDF: SubjectGrade[];
       
       if (studentGrades.length > 0) {
-        // Use real grades
+        // Use real grades uploaded by exam officer
         gradesForPDF = studentGrades.map(grade => ({
           subject: grade.subjectName,
-          ca1: Number(grade.assessments.firstCA),
-          ca2: Number(grade.assessments.secondCA),
-          exam: Number(grade.assessments.exam),
+          ca1: Number(grade.assessments?.firstCA || 0),
+          ca2: Number(grade.assessments?.secondCA || 0),
+          exam: Number(grade.assessments?.exam || 0),
           total: Number(grade.total),
           grade: grade.grade,
           remark: grade.remark,
           position: grade.position
         }));
         
-        toast.success(`Found ${studentGrades.length} subjects with grades for ${term}, ${session}`);
+        toast.success(`Found ${studentGrades.length} subjects with grades uploaded by exam officer for ${term}, ${session}`);
       } else {
         // No grades found - inform student
         toast.error(`No results have been uploaded by the exam officer for ${term}, ${session}. Please contact your exam officer or check back later.`);
@@ -430,8 +444,6 @@ export default function StudentDashboard() {
       return;
     }
     
-    console.log('Receipt download started:', { session, term });
-    
     try {
       // Prepare student info for PDF
       const pdfStudentInfo: PDFStudentInfo = {
@@ -447,30 +459,42 @@ export default function StudentDashboard() {
         address: studentProfile.address
       };
 
-      console.log('Student info prepared:', pdfStudentInfo);
-
-      // Get real payment data from storage - try multiple ID formats
-      let studentPayments = getPaymentsByStudentAndSession(user?.id || '', session, term);
-      
-      // If no payments found with user.id, try with admission number
-      if (studentPayments.length === 0) {
-        studentPayments = getPaymentsByStudentAndSession(studentProfile.admissionNumber, session, term);
+      // Try API first for payments
+      let studentPayments: any[] = [];
+      try {
+        const response = await fetch(`/api/payments?studentId=${user?.id}&session=${session}&term=${term}`);
+        if (response.ok) {
+          const data = await response.json();
+          studentPayments = data.payments || [];
+        }
+      } catch (apiError) {
+        console.log('API not available, checking local storage...');
       }
-      
-      // If still no payments, try with student name
+
+      // Fallback to localStorage if API fails or no payments found
       if (studentPayments.length === 0) {
-        const allPayments = getStudentPayments();
-        studentPayments = allPayments.filter(payment => 
-          payment.studentName === `${user?.firstName} ${user?.lastName}` &&
-          payment.academicSession === session &&
-          payment.term === term
-        );
+        studentPayments = getPaymentsByStudentAndSession(user?.id || '', session, term);
+        
+        // If no payments found with user.id, try with admission number
+        if (studentPayments.length === 0) {
+          studentPayments = getPaymentsByStudentAndSession(studentProfile.admissionNumber, session, term);
+        }
+        
+        // If still no payments, try with student name
+        if (studentPayments.length === 0) {
+          const allPayments = getStudentPayments();
+          studentPayments = allPayments.filter(payment => 
+            payment.studentName === `${user?.firstName} ${user?.lastName}` &&
+            payment.academicSession === session &&
+            payment.term === term
+          );
+        }
       }
       
       let paymentInfo: PaymentInfo;
       
       if (studentPayments.length > 0) {
-        // Use real payment data
+        // Use real payment data confirmed by accountant
         const payment = studentPayments[0]; // Use the first payment found
         
         paymentInfo = {
@@ -487,24 +511,19 @@ export default function StudentDashboard() {
           studentInfo: pdfStudentInfo
         };
         
-        toast.success(`Found payment record for ${term}, ${session}`);
+        toast.success(`Found payment record confirmed by accountant for ${term}, ${session}`);
       } else {
         // No payment found - inform student
         toast.error(`No payment has been confirmed by the accountant for ${term}, ${session}. Please contact the accounts office or ensure your payment has been processed.`);
         return; // Don't generate PDF if no real data
       }
 
-      console.log('Payment info prepared:', paymentInfo);
-
       // Generate the PDF
-      console.log('Calling generatePaymentReceiptPDF...');
       await generatePaymentReceiptPDF(paymentInfo);
-      console.log('PDF generation completed successfully');
       
       toast.success(`Payment receipt for ${term}, ${session} downloaded successfully!`);
     } catch (error) {
       console.error('Error generating receipt:', error);
-      console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
       toast.error(`Failed to generate receipt: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
