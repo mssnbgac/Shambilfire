@@ -144,8 +144,8 @@ export const userReportStorage = {
       .filter(report => report.status === 'submitted' || report.status === 'under_review')
       .sort((a, b) => {
         // Prioritize urgent reports
-        if (report.priority === 'urgent' && b.priority !== 'urgent') return -1;
-        if (b.priority === 'urgent' && report.priority !== 'urgent') return 1;
+        if (a.priority === 'urgent' && b.priority !== 'urgent') return -1;
+        if (b.priority === 'urgent' && a.priority !== 'urgent') return 1;
         return new Date(b.submittedAt || b.createdAt).getTime() - new Date(a.submittedAt || a.createdAt).getTime();
       });
   },
