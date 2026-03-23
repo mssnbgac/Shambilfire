@@ -192,7 +192,7 @@ export default function DebugAuthPage() {
     }
   };
 
-  const createTestUser = () => {
+  const createTestUser = async () => {
     if (!newUser.email || !newUser.password || !newUser.firstName || !newUser.lastName) {
       toast.error('Please fill in all fields');
       return;
@@ -209,7 +209,7 @@ export default function DebugAuthPage() {
       updatedAt: new Date()
     };
 
-    const success = saveCreatedUser(testUser);
+    const success = await saveCreatedUser(testUser);
     if (success) {
       toast.success('Test user created successfully!');
       setNewUser({ email: '', password: '', firstName: '', lastName: '', role: 'student' });

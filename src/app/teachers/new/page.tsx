@@ -115,7 +115,7 @@ export default function NewTeacherPage() {
       
       // Method 2: Save to localStorage (always do this as backup)
       try {
-        const localSaved = saveCreatedUser(newUser);
+        const localSaved = await saveCreatedUser(newUser);
         if (localSaved) {
           console.log('User saved to localStorage successfully');
           saveSuccess = true;

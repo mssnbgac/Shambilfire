@@ -154,7 +154,7 @@ export const createParentUser = async (parentData: {
     updatedAt: new Date()
   };
   
-  const success = saveCreatedUser(newParent);
+  const success = await saveCreatedUser(newParent);
   const sharedSuccess = await addSharedUser(newParent);
   
   if (!success && !sharedSuccess) {
