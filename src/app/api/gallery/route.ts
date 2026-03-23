@@ -20,8 +20,12 @@ function readGallery(): GalleryData {
 }
 
 function writeGallery(data: GalleryData) {
-  fs.mkdirSync(path.dirname(GALLERY_FILE), { recursive: true });
-  fs.writeFileSync(GALLERY_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  try {
+    fs.mkdirSync(path.dirname(GALLERY_FILE), { recursive: true });
+    fs.writeFileSync(GALLERY_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  } catch {
+    // Vercel read-only filesystem — writes are silently ignored
+  }
 }
 
 // GET - fetch gallery
