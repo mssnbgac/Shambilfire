@@ -1,139 +1,101 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { 
-  getFinancialOverview, 
-  getSessionsWithPayments, 
-  getTermsWithPayments,
-  getPaymentsBySessionAndTerm,
-  StudentPayment,
-  initializeDemoPayments,
-  resetDemoPayments,
-  debugPayments,
-  forceRefreshDemoData
-} from '@/lib/paymentsStorage';
-import { expenditureStorage } from '@/lib/expenditureStorage';
 import { ACADEMIC_SESSIONS, TERMS } from '@/lib/academicSessions';
 import {
   CurrencyDollarIcon,
   BanknotesIcon,
   CreditCardIcon,
   DocumentTextIcon,
-  CalendarIcon,
   UserGroupIcon,
   ChartBarIcon,
   ArrowTrendingUpIcon,
   CheckCircleIcon,
+  ArrowPathIcon,
 } from '@heroicons/react/24/outline';
 
-interface FinancialData {
+interface FinancialOverviewData {
+  totalIncome: number;
   totalRevenue: number;
+  totalExpenditure: number;
+  availableFunds: number;
   totalPayments: number;
+  totalExpenditures: number;
+  approvedExpenditures: number;
+  pendingExpenditures: number;
   paymentMethods: Record<string, number>;
-  feeTypes: Record<string, number>;
-  recentPayments: StudentPayment[];
-  averagePayment: number;
+  expenditureCategories: Record<string, number>;
 }
+
+interface Payment {
+  id: string;
+  studentName: string;
+  admissionNumber: string;
+  receiptNumber: string;
+  amount: number;
+  paymentMethod: string;
+  dateIssued: string;
+  description: string;
+}
+
+const EMPTY_OVERVIEW: FinancialOverviewData = {
+  totalIncome: 0, totalRevenue: 0, totalExpenditure: 0, availableFunds: 0,
+  totalPayments: 0, totalExpenditures: 0, approvedExpenditures: 0, pendingExpenditures: 0,
+  paymentMethods: {}, expenditureCategories: {},
+};
 
 export default function FinancialOverview() {
   const { user } = useAuth();
-  const [selectedSession, setSelectedSession] = useState('2023/2024');
+  const [selectedSession, setSelectedSession] = useState('2025/2026');
   const [selectedTerm, setSelectedTerm] = useState('First Term');
-  const [financialData, setFinancialData] = useState<FinancialData | null>(null);
-  const [payments, setPayments] = useState<StudentPayment[]>([]);
-  const [expenditures, setExpenditures] = useState<any[]>([]);
+  const [overview, setOverview] = useState<FinancialOverviewData>(EMPTY_OVERVIEW);
+  const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    loadFinancialData();
-  }, [selectedSession, selectedTerm]);
-
-  // Initialize demo data only once when component mounts
-  useEffect(() => {
-    initializeDemoPayments();
-  }, []);
-
-  const loadFinancialData = async () => {
-    setLoading(true);
+  const loadData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    else setRefreshing(true);
     try {
-      // Try API first
-      const response = await fetch(`/api/finances?session=${selectedSession}&term=${selectedTerm}`);
-      if (response.ok) {
-        const data = await response.json();
-        setFinancialData(data.financialOverview);
-        
-        // Get payments from API
-        const paymentsResponse = await fetch(`/api/payments?session=${selectedSession}&term=${selectedTerm}`);
-        if (paymentsResponse.ok) {
-          const paymentsData = await paymentsResponse.json();
-          setPayments(paymentsData.payments || []);
-        }
-        
-        // Get expenditures from API
-        const expendituresResponse = await fetch(`/api/expenditures?session=${selectedSession}&term=${selectedTerm}`);
-        if (expendituresResponse.ok) {
-          const expendituresData = await expendituresResponse.json();
-          setExpenditures(expendituresData.expenditures || []);
-        }
-      } else {
-        // Fallback to localStorage
-        const overview = getFinancialOverview(selectedSession, selectedTerm);
-        const sessionPayments = getPaymentsBySessionAndTerm(selectedSession, selectedTerm);
-        const sessionExpenditures = expenditureStorage.getRequestsBySessionAndTerm(selectedSession, selectedTerm);
-        
-        setFinancialData(overview);
-        setPayments(sessionPayments);
-        setExpenditures(sessionExpenditures);
+      const [ovRes, pmRes] = await Promise.all([
+        fetch(`/api/finances?session=${encodeURIComponent(selectedSession)}&term=${encodeURIComponent(selectedTerm)}`),
+        fetch(`/api/payments?session=${encodeURIComponent(selectedSession)}&term=${encodeURIComponent(selectedTerm)}`),
+      ]);
+
+      if (ovRes.ok) {
+        const d = await ovRes.json();
+        setOverview({ ...EMPTY_OVERVIEW, ...d.financialOverview });
       }
-    } catch (error) {
-      console.error('Error loading financial data:', error);
-      // Fallback to localStorage on error
-      const overview = getFinancialOverview(selectedSession, selectedTerm);
-      const sessionPayments = getPaymentsBySessionAndTerm(selectedSession, selectedTerm);
-      const sessionExpenditures = expenditureStorage.getRequestsBySessionAndTerm(selectedSession, selectedTerm);
-      
-      setFinancialData(overview);
-      setPayments(sessionPayments);
-      setExpenditures(sessionExpenditures);
+      if (pmRes.ok) {
+        const d = await pmRes.json();
+        setPayments(d.payments || []);
+      }
+    } catch (err) {
+      console.error('Error loading financial data:', err);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  };
+  }, [selectedSession, selectedTerm]);
 
-  const handleDebugPayments = () => {
-    const result = debugPayments();
-    const sessionCount = Object.keys(result.sessionSummary || {}).length;
-    alert(`Found ${result.payments.length} payments across ${sessionCount} academic sessions. Check browser console for detailed breakdown.`);
-  };
+  useEffect(() => { loadData(); }, [loadData]);
 
-  const handleForceRefresh = () => {
-    const result = forceRefreshDemoData();
-    const sessionCount = Object.keys(result.sessionSummary || {}).length;
-    alert(`Demo data refreshed! Generated ${result.payments.length} payments across ${sessionCount} sessions and all terms. Page will reload to show updated data.`);
-    window.location.reload();
-  };
+  // Auto-refresh every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => loadData(true), 30_000);
+    return () => clearInterval(interval);
+  }, [loadData]);
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-NG', {
-      style: 'currency',
-      currency: 'NGN',
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
+  const fmt = (n: number) =>
+    new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', minimumFractionDigits: 0 }).format(n);
 
-  const getPaymentMethodIcon = (method: string) => {
+  const methodIcon = (method: string) => {
     switch (method.toLowerCase()) {
-      case 'bank transfer':
-        return <BanknotesIcon className="h-5 w-5" />;
-      case 'cash':
-        return <CurrencyDollarIcon className="h-5 w-5" />;
-      case 'card':
-      case 'debit card':
-      case 'credit card':
-        return <CreditCardIcon className="h-5 w-5" />;
-      default:
-        return <DocumentTextIcon className="h-5 w-5" />;
+      case 'bank transfer': return <BanknotesIcon className="h-5 w-5" />;
+      case 'cash': return <CurrencyDollarIcon className="h-5 w-5" />;
+      case 'debit card': case 'credit card': case 'card': return <CreditCardIcon className="h-5 w-5" />;
+      default: return <DocumentTextIcon className="h-5 w-5" />;
     }
   };
 
@@ -146,55 +108,41 @@ export default function FinancialOverview() {
     );
   }
 
+  const netBalance = overview.totalRevenue - overview.totalExpenditure;
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">Financial Overview</h2>
-        <p className="text-gray-600">View detailed financial data by academic session and term</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Financial Overview</h2>
+          <p className="text-gray-600">Real-time financial data by academic session and term</p>
+        </div>
+        <button
+          onClick={() => loadData(true)}
+          disabled={refreshing}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 text-sm font-medium"
+        >
+          <ArrowPathIcon className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+          Refresh
+        </button>
       </div>
 
-      {/* Session and Term Selector */}
+      {/* Period Selector */}
       <div className="bg-white shadow rounded-lg p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-medium text-gray-900">Select Period</h3>
-          <div className="flex space-x-2">
-            <button
-              onClick={handleDebugPayments}
-              className="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
-            >
-              Debug Payments
-            </button>
-            <button
-              onClick={handleForceRefresh}
-              className="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
-            >
-              Refresh Demo Data
-            </button>
-          </div>
-        </div>
+        <h3 className="text-lg font-medium text-gray-900 mb-4">Select Period</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700">Academic Session</label>
-            <select
-              value={selectedSession}
-              onChange={(e) => setSelectedSession(e.target.value)}
-              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-            >
-              {ACADEMIC_SESSIONS.map(session => (
-                <option key={session} value={session}>{session}</option>
-              ))}
+            <select value={selectedSession} onChange={e => setSelectedSession(e.target.value)}
+              className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+              {ACADEMIC_SESSIONS.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">Term</label>
-            <select
-              value={selectedTerm}
-              onChange={(e) => setSelectedTerm(e.target.value)}
-              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-            >
-              {TERMS.map(term => (
-                <option key={term} value={term}>{term}</option>
-              ))}
+            <select value={selectedTerm} onChange={e => setSelectedTerm(e.target.value)}
+              className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+              {TERMS.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
         </div>
@@ -206,250 +154,142 @@ export default function FinancialOverview() {
         </div>
       ) : (
         <>
-          {/* Financial Statistics */}
-          {financialData && (
-            <>
-              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-5">
-                <div className="bg-white overflow-hidden shadow rounded-lg">
-                  <div className="p-5">
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0">
-                        <CurrencyDollarIcon className="h-8 w-8 text-green-400" />
-                      </div>
-                      <div className="ml-5 w-0 flex-1">
-                        <dl>
-                          <dt className="text-sm font-medium text-gray-500 truncate">Total Revenue</dt>
-                          <dd className="text-lg font-medium text-gray-900">{formatCurrency(financialData.totalRevenue)}</dd>
-                        </dl>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white overflow-hidden shadow rounded-lg">
-                  <div className="p-5">
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0">
-                        <DocumentTextIcon className="h-8 w-8 text-red-400" />
-                      </div>
-                      <div className="ml-5 w-0 flex-1">
-                        <dl>
-                          <dt className="text-sm font-medium text-gray-500 truncate">Approved Expenditures</dt>
-                          <dd className="text-lg font-medium text-gray-900">
-                            {formatCurrency(expenditures.filter(e => e.status === 'approved' || e.status === 'completed').reduce((sum, e) => sum + e.amount, 0))}
-                          </dd>
-                        </dl>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white overflow-hidden shadow rounded-lg">
-                  <div className="p-5">
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0">
-                        <CheckCircleIcon className="h-8 w-8 text-blue-400" />
-                      </div>
-                      <div className="ml-5 w-0 flex-1">
-                        <dl>
-                          <dt className="text-sm font-medium text-gray-500 truncate">Net Available Funds</dt>
-                          <dd className={`text-lg font-medium ${
-                            (financialData.totalRevenue - expenditures.filter(e => e.status === 'approved' || e.status === 'completed').reduce((sum, e) => sum + e.amount, 0)) >= 0 
-                              ? 'text-green-600' 
-                              : 'text-red-600'
-                          }`}>
-                            {formatCurrency(financialData.totalRevenue - expenditures.filter(e => e.status === 'approved' || e.status === 'completed').reduce((sum, e) => sum + e.amount, 0))}
-                          </dd>
-                        </dl>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white overflow-hidden shadow rounded-lg">
-                  <div className="p-5">
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0">
-                        <UserGroupIcon className="h-8 w-8 text-purple-400" />
-                      </div>
-                      <div className="ml-5 w-0 flex-1">
-                        <dl>
-                          <dt className="text-sm font-medium text-gray-500 truncate">Total Payments</dt>
-                          <dd className="text-lg font-medium text-gray-900">{financialData.totalPayments}</dd>
-                        </dl>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white overflow-hidden shadow rounded-lg">
-                  <div className="p-5">
-                    <div className="flex items-center">
-                      <div className="flex-shrink-0">
-                        <ArrowTrendingUpIcon className="h-8 w-8 text-indigo-400" />
-                      </div>
-                      <div className="ml-5 w-0 flex-1">
-                        <dl>
-                          <dt className="text-sm font-medium text-gray-500 truncate">Pending Requests</dt>
-                          <dd className="text-lg font-medium text-gray-900">{expenditures.filter(e => e.status === 'pending').length}</dd>
-                        </dl>
-                      </div>
+          {/* Stats Cards */}
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-5">
+            {[
+              { label: 'Total Revenue', value: fmt(overview.totalRevenue), icon: CurrencyDollarIcon, color: 'text-green-400' },
+              { label: 'Approved Expenditures', value: fmt(overview.totalExpenditure), icon: DocumentTextIcon, color: 'text-red-400' },
+              { label: 'Net Balance', value: fmt(netBalance), icon: CheckCircleIcon, color: netBalance >= 0 ? 'text-blue-400' : 'text-red-500', valueColor: netBalance >= 0 ? 'text-green-600' : 'text-red-600' },
+              { label: 'Total Payments', value: String(overview.totalPayments), icon: UserGroupIcon, color: 'text-purple-400' },
+              { label: 'Pending Requests', value: String(overview.pendingExpenditures), icon: ArrowTrendingUpIcon, color: 'text-indigo-400' },
+            ].map(card => (
+              <div key={card.label} className="bg-white overflow-hidden shadow rounded-lg">
+                <div className="p-5">
+                  <div className="flex items-center">
+                    <card.icon className={`h-8 w-8 flex-shrink-0 ${card.color}`} />
+                    <div className="ml-5 w-0 flex-1">
+                      <dt className="text-sm font-medium text-gray-500 truncate">{card.label}</dt>
+                      <dd className={`text-lg font-medium ${(card as any).valueColor || 'text-gray-900'}`}>{card.value}</dd>
                     </div>
                   </div>
                 </div>
               </div>
-            </>
-          )}
+            ))}
+          </div>
 
-          {/* Payment Methods Breakdown */}
-          {financialData && Object.keys(financialData.paymentMethods).length > 0 && (
+          {/* Breakdowns */}
+          {(Object.keys(overview.paymentMethods).length > 0 || Object.keys(overview.expenditureCategories).length > 0) && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="bg-white shadow rounded-lg">
-                <div className="px-4 py-5 sm:p-6">
-                  <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">Payment Methods</h3>
+              {Object.keys(overview.paymentMethods).length > 0 && (
+                <div className="bg-white shadow rounded-lg p-6">
+                  <h3 className="text-lg font-medium text-gray-900 mb-4">Payment Methods</h3>
                   <div className="space-y-3">
-                    {Object.entries(financialData.paymentMethods).map(([method, amount]) => (
+                    {Object.entries(overview.paymentMethods).map(([method, amount]) => (
                       <div key={method} className="flex items-center justify-between">
-                        <div className="flex items-center space-x-3">
-                          <div className="text-gray-400">
-                            {getPaymentMethodIcon(method)}
-                          </div>
+                        <div className="flex items-center gap-3 text-gray-400">
+                          {methodIcon(method)}
                           <span className="text-sm font-medium text-gray-900">{method}</span>
                         </div>
                         <div className="text-right">
-                          <div className="text-sm font-medium text-gray-900">{formatCurrency(amount)}</div>
+                          <div className="text-sm font-medium text-gray-900">{fmt(amount)}</div>
                           <div className="text-xs text-gray-500">
-                            {((amount / financialData.totalRevenue) * 100).toFixed(1)}%
+                            {overview.totalRevenue > 0 ? ((amount / overview.totalRevenue) * 100).toFixed(1) : '0'}%
                           </div>
                         </div>
                       </div>
                     ))}
                   </div>
                 </div>
-              </div>
+              )}
 
-              <div className="bg-white shadow rounded-lg">
-                <div className="px-4 py-5 sm:p-6">
-                  <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">Fee Types</h3>
+              {Object.keys(overview.expenditureCategories).length > 0 && (
+                <div className="bg-white shadow rounded-lg p-6">
+                  <h3 className="text-lg font-medium text-gray-900 mb-4">Expenditure Categories</h3>
                   <div className="space-y-3">
-                    {Object.entries(financialData.feeTypes).map(([feeType, amount]) => (
-                      <div key={feeType} className="flex items-center justify-between">
-                        <div className="flex items-center space-x-3">
-                          <div className="text-gray-400">
-                            <DocumentTextIcon className="h-5 w-5" />
-                          </div>
-                          <span className="text-sm font-medium text-gray-900">{feeType}</span>
+                    {Object.entries(overview.expenditureCategories).map(([cat, amount]) => (
+                      <div key={cat} className="flex items-center justify-between">
+                        <div className="flex items-center gap-3 text-gray-400">
+                          <DocumentTextIcon className="h-5 w-5" />
+                          <span className="text-sm font-medium text-gray-900 capitalize">{cat}</span>
                         </div>
                         <div className="text-right">
-                          <div className="text-sm font-medium text-gray-900">{formatCurrency(amount)}</div>
+                          <div className="text-sm font-medium text-gray-900">{fmt(amount)}</div>
                           <div className="text-xs text-gray-500">
-                            {((amount / financialData.totalRevenue) * 100).toFixed(1)}%
+                            {overview.totalRevenue > 0 ? ((amount / overview.totalRevenue) * 100).toFixed(1) : '0'}%
                           </div>
                         </div>
                       </div>
                     ))}
                   </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
 
-          {/* Recent Payments */}
+          {/* Payments Table */}
           <div className="bg-white shadow rounded-lg">
-            <div className="px-4 py-5 sm:p-6">
-              <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">
-                Recent Payments ({selectedTerm}, {selectedSession})
+            <div className="px-6 py-5 border-b border-gray-200">
+              <h3 className="text-lg font-medium text-gray-900">
+                Confirmed Payments — {selectedTerm}, {selectedSession}
+                <span className="ml-2 text-sm font-normal text-gray-500">({payments.length} records)</span>
               </h3>
-              
+            </div>
+            <div className="p-6">
               {payments.length === 0 ? (
                 <div className="text-center py-8">
-                  <CurrencyDollarIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900">No Payments Found</h3>
-                  <p className="text-gray-500 mt-2">
-                    No payments have been recorded for {selectedTerm} of {selectedSession}.
-                  </p>
+                  <CurrencyDollarIcon className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+                  <p className="text-gray-500">No payments recorded for this period.</p>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Student
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Receipt No.
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Amount
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Method
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Date
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Description
-                        </th>
+                        {['Student', 'Receipt No.', 'Amount', 'Method', 'Date', 'Description'].map(h => (
+                          <th key={h} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{h}</th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {payments.map((payment) => (
-                        <tr key={payment.id} className="hover:bg-gray-50">
+                      {payments.map(p => (
+                        <tr key={p.id} className="hover:bg-gray-50">
                           <td className="px-6 py-4 whitespace-nowrap">
-                            <div>
-                              <div className="text-sm font-medium text-gray-900">{payment.studentName}</div>
-                              <div className="text-sm text-gray-500">{payment.admissionNumber}</div>
-                            </div>
+                            <div className="text-sm font-medium text-gray-900">{p.studentName}</div>
+                            <div className="text-sm text-gray-500">{p.admissionNumber}</div>
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {payment.receiptNumber}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                            {formatCurrency(payment.amount)}
-                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{p.receiptNumber}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">{fmt(p.amount)}</td>
                           <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="flex items-center space-x-2">
-                              <div className="text-gray-400">
-                                {getPaymentMethodIcon(payment.paymentMethod)}
-                              </div>
-                              <span className="text-sm text-gray-900">{payment.paymentMethod}</span>
+                            <div className="flex items-center gap-2 text-gray-400">
+                              {methodIcon(p.paymentMethod)}
+                              <span className="text-sm text-gray-900">{p.paymentMethod}</span>
                             </div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {new Date(payment.dateIssued).toLocaleDateString()}
+                            {new Date(p.dateIssued).toLocaleDateString()}
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {payment.description}
-                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{p.description}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
+                  <div className="mt-4 text-sm text-gray-700 font-medium">
+                    Total: {payments.length} payments — {fmt(payments.reduce((s, p) => s + (Number(p.amount) || 0), 0))}
+                  </div>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Summary Card */}
-          <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
-            <div className="flex">
-              <div className="flex-shrink-0">
-                <ChartBarIcon className="h-5 w-5 text-blue-400" />
-              </div>
-              <div className="ml-3">
-                <h3 className="text-sm font-medium text-blue-800">Financial Summary</h3>
-                <div className="mt-2 text-sm text-blue-700">
-                  <p>
-                    Showing financial data for <strong>{selectedTerm}</strong> of academic session <strong>{selectedSession}</strong>.
-                    {financialData && (
-                      <span> Total of {financialData.totalPayments} payments worth {formatCurrency(financialData.totalRevenue)} have been confirmed.</span>
-                    )}
-                  </p>
-                </div>
-              </div>
-            </div>
+          {/* Summary */}
+          <div className="bg-blue-50 border border-blue-200 rounded-md p-4 flex gap-3">
+            <ChartBarIcon className="h-5 w-5 text-blue-400 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-blue-700">
+              <strong>{selectedTerm}, {selectedSession}</strong> — {overview.totalPayments} payments totalling{' '}
+              <strong>{fmt(overview.totalRevenue)}</strong>. Approved expenditures:{' '}
+              <strong>{fmt(overview.totalExpenditure)}</strong>. Net balance:{' '}
+              <strong className={netBalance >= 0 ? 'text-green-700' : 'text-red-700'}>{fmt(netBalance)}</strong>.
+            </p>
           </div>
         </>
       )}

@@ -15,6 +15,11 @@ export interface UserUpdateData {
   dateOfBirth?: string;
   bloodGroup?: string;
   parentEmail?: string;
+  // Teacher-specific fields
+  teachingSubjects?: string[];
+  classAssignments?: string[];
+  workingExperience?: string;
+  qualifications?: string;
   [key: string]: any;
 }
 
@@ -56,7 +61,8 @@ export const updateUser = (userId: string, updates: UserUpdateData): CreatedUser
   users[userIndex] = updatedUser;
   
   try {
-    localStorage.setItem('createdUsers', JSON.stringify(users.map(user => ({
+    // Use standardized storage key
+    localStorage.setItem('created_users', JSON.stringify(users.map(user => ({
       ...user,
       createdAt: user.createdAt.toISOString(),
       updatedAt: user.updatedAt.toISOString()
@@ -76,6 +82,55 @@ export const getAllUsers = (): CreatedUser[] => {
 export const getUsersByRole = (role: string): CreatedUser[] => {
   const users = getCreatedUsers();
   return users.filter(user => user.role === role);
+};
+
+// Unified user search across all storage systems
+export const getAllUsersUnified = (): CreatedUser[] => {
+  const users: CreatedUser[] = [];
+  const seenEmails = new Set<string>();
+  
+  // 1. Get created users (primary source)
+  const createdUsers = getCreatedUsers();
+  createdUsers.forEach(user => {
+    const email = user.email.toLowerCase();
+    if (!seenEmails.has(email)) {
+      users.push(user);
+      seenEmails.add(email);
+    }
+  });
+  
+  // 2. Get shared users (for cross-device sync)
+  try {
+    const sharedStored = localStorage.getItem('shared_users');
+    if (sharedStored) {
+      const sharedUsers = JSON.parse(sharedStored);
+      sharedUsers.forEach((user: any) => {
+        const email = user.email.toLowerCase();
+        if (!seenEmails.has(email)) {
+          users.push({
+            ...user,
+            createdAt: new Date(user.createdAt),
+            updatedAt: new Date(user.updatedAt)
+          });
+          seenEmails.add(email);
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Error loading shared users:', error);
+  }
+  
+  return users;
+};
+
+// Search user by email across all storage systems
+export const searchUserByEmailUnified = (email: string): CreatedUser | null => {
+  const allUsers = getAllUsersUnified();
+  const normalizedEmail = email.toLowerCase().trim();
+  
+  return allUsers.find(user => 
+    user.email.toLowerCase().trim() === normalizedEmail
+  ) || null;
 };
 
 export const createParentUser = async (parentData: {

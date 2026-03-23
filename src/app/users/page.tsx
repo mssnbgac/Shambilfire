@@ -5,7 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useState, useEffect } from 'react';
 import ParentChildManager from '@/components/ParentChildManager';
 import UserSearchAndUpdate from '@/components/UserSearchAndUpdate';
-import { getCreatedUsers, CreatedUser, initializeDemoUsers } from '@/lib/demoUsers';
+import { getCreatedUsers, initializeDemoUsers } from '@/lib/demoUsers';
 import toast from 'react-hot-toast';
 import { 
   UserCircleIcon, 
@@ -38,6 +38,8 @@ export default function UsersPage() {
   const [activeTab, setActiveTab] = useState<'users' | 'search' | 'parent-child'>('users');
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showAddUserDropdown, setShowAddUserDropdown] = useState(false);
+  const [showQuickAddModal, setShowQuickAddModal] = useState(false);
 
   useEffect(() => {
     if (user && user.role === 'admin') {
@@ -64,6 +66,38 @@ export default function UsersPage() {
       };
     }
   }, []);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showAddUserDropdown) {
+        setShowAddUserDropdown(false);
+      }
+    };
+
+    if (showAddUserDropdown) {
+      document.addEventListener('click', handleClickOutside);
+      return () => document.removeEventListener('click', handleClickOutside);
+    }
+  }, [showAddUserDropdown]);
+
+  const handleExportUsers = () => {
+    try {
+      const dataStr = JSON.stringify(allUsers, null, 2);
+      const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+      
+      const exportFileDefaultName = `users_export_${new Date().toISOString().split('T')[0]}.json`;
+      
+      const linkElement = document.createElement('a');
+      linkElement.setAttribute('href', dataUri);
+      linkElement.setAttribute('download', exportFileDefaultName);
+      linkElement.click();
+      
+      toast.success('Users exported successfully!');
+    } catch (error) {
+      toast.error('Failed to export users');
+    }
+  };
 
   const loadAllUsers = () => {
     try {
@@ -185,11 +219,71 @@ export default function UsersPage() {
             <p className="text-gray-600">Manage user accounts, parent-child relationships, and user information.</p>
           </div>
           <div className="flex space-x-3">
-            <button className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700">
-              Add New User
-            </button>
-            <button className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
-              Export Users
+            <div className="relative">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowAddUserDropdown(!showAddUserDropdown);
+                }}
+                className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center space-x-2"
+              >
+                <UserCircleIcon className="h-5 w-5" />
+                <span>Add New User</span>
+                <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              
+              {showAddUserDropdown && (
+                <div 
+                  onClick={(e) => e.stopPropagation()}
+                  className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10 border border-gray-200"
+                >
+                  <div className="py-1">
+                    <a
+                      href="/students/new"
+                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+                    >
+                      <span className="w-2 h-2 bg-blue-500 rounded-full mr-3"></span>
+                      Add Student
+                    </a>
+                    <a
+                      href="/teachers/new"
+                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+                    >
+                      <span className="w-2 h-2 bg-green-500 rounded-full mr-3"></span>
+                      Add Teacher
+                    </a>
+                    <a
+                      href="/parents/new"
+                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+                    >
+                      <span className="w-2 h-2 bg-purple-500 rounded-full mr-3"></span>
+                      Add Parent
+                    </a>
+                    <div className="border-t border-gray-100 my-1"></div>
+                    <button
+                      onClick={() => {
+                        setShowAddUserDropdown(false);
+                        setShowQuickAddModal(true);
+                      }}
+                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+                    >
+                      <span className="w-2 h-2 bg-gray-500 rounded-full mr-3"></span>
+                      Quick Add User
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+            <button 
+              onClick={handleExportUsers}
+              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center space-x-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <span>Export Users</span>
             </button>
           </div>
         </div>
@@ -415,6 +509,81 @@ export default function UsersPage() {
         {activeTab === 'search' && <UserSearchAndUpdate />}
 
         {activeTab === 'parent-child' && <ParentChildManager />}
+
+        {/* Quick Add User Modal */}
+        {showQuickAddModal && (
+          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+            <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+              <div className="mt-3">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-medium text-gray-900">Quick Add User</h3>
+                  <button
+                    onClick={() => setShowQuickAddModal(false)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                
+                <div className="space-y-3">
+                  <p className="text-sm text-gray-600 mb-4">
+                    Choose the type of user you want to create:
+                  </p>
+                  
+                  <a
+                    href="/students/new"
+                    className="block w-full p-3 border border-gray-200 rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                  >
+                    <div className="flex items-center">
+                      <div className="w-3 h-3 bg-blue-500 rounded-full mr-3"></div>
+                      <div>
+                        <div className="font-medium text-gray-900">Student</div>
+                        <div className="text-sm text-gray-500">Add a new student with class and parent information</div>
+                      </div>
+                    </div>
+                  </a>
+                  
+                  <a
+                    href="/teachers/new"
+                    className="block w-full p-3 border border-gray-200 rounded-lg hover:bg-green-50 hover:border-green-300 transition-colors"
+                  >
+                    <div className="flex items-center">
+                      <div className="w-3 h-3 bg-green-500 rounded-full mr-3"></div>
+                      <div>
+                        <div className="font-medium text-gray-900">Teacher</div>
+                        <div className="text-sm text-gray-500">Add a new teacher with subjects and classes</div>
+                      </div>
+                    </div>
+                  </a>
+                  
+                  <a
+                    href="/parents/new"
+                    className="block w-full p-3 border border-gray-200 rounded-lg hover:bg-purple-50 hover:border-purple-300 transition-colors"
+                  >
+                    <div className="flex items-center">
+                      <div className="w-3 h-3 bg-purple-500 rounded-full mr-3"></div>
+                      <div>
+                        <div className="font-medium text-gray-900">Parent</div>
+                        <div className="text-sm text-gray-500">Add a new parent with contact information</div>
+                      </div>
+                    </div>
+                  </a>
+                </div>
+                
+                <div className="mt-6 flex justify-end">
+                  <button
+                    onClick={() => setShowQuickAddModal(false)}
+                    className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </Layout>
   );

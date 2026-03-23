@@ -403,7 +403,8 @@ export default function PaymentConfirmation() {
                   step="0.01"
                   {...register('amount', { 
                     required: 'Amount is required',
-                    min: { value: 0, message: 'Amount must be positive' }
+                    min: { value: 0, message: 'Amount must be positive' },
+                    valueAsNumber: true
                   })}
                   className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                 />

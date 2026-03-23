@@ -72,7 +72,10 @@ export default function NewStudentPage() {
         medicalConditions: data.medicalConditions?.trim() || '',
       };
 
-      // Save user using API first, then fallback to local storage
+      // Save user using multiple storage methods for reliability
+      let saveSuccess = false;
+      
+      // Method 1: Try API first
       try {
         const response = await fetch('/api/users', {
           method: 'POST',
@@ -84,6 +87,7 @@ export default function NewStudentPage() {
         
         if (response.ok) {
           console.log('User saved to API successfully');
+          saveSuccess = true;
         } else {
           const errorData = await response.json();
           if (errorData.error === 'Email already exists') {
@@ -93,13 +97,42 @@ export default function NewStudentPage() {
           throw new Error('API save failed');
         }
       } catch (apiError) {
-        console.log('API not available, using local storage...');
-        // Fallback to local storage
-        const saved = saveCreatedUser(newUser);
-        if (!saved) {
-          toast.error('A user with this email already exists');
-          return;
+        console.log('API not available, trying local storage...');
+      }
+      
+      // Method 2: Save to localStorage (always do this as backup)
+      try {
+        const localSaved = saveCreatedUser(newUser);
+        if (localSaved) {
+          console.log('User saved to localStorage successfully');
+          saveSuccess = true;
+        } else {
+          console.log('Failed to save to localStorage - email might exist');
+          if (!saveSuccess) {
+            toast.error('A user with this email already exists');
+            return;
+          }
         }
+      } catch (localError) {
+        console.log('localStorage save failed:', localError);
+      }
+      
+      // Method 3: Save to shared storage
+      try {
+        const sharedSaved = await addSharedUser(newUser);
+        if (sharedSaved) {
+          console.log('User saved to shared storage successfully');
+          saveSuccess = true;
+        } else {
+          console.log('Failed to save to shared storage - email might exist');
+        }
+      } catch (sharedError) {
+        console.log('Shared storage save failed:', sharedError);
+      }
+      
+      if (!saveSuccess) {
+        toast.error('Failed to save student. Please try again.');
+        return;
       }
 
       console.log('New student data:', { ...data, password: '[HIDDEN]' });

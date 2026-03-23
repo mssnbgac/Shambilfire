@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form';
 import { NIGERIAN_SUBJECTS, NIGERIAN_CLASSES } from '@/types';
 import { saveCreatedUser } from '@/lib/demoUsers';
 import { addSharedUser } from '@/lib/sharedUserStorage';
+import { TEACHER_OFFICES, TeacherOffice } from '@/lib/teacherOffices';
 import toast from 'react-hot-toast';
 
 interface TeacherFormData {
@@ -23,6 +24,7 @@ interface TeacherFormData {
   academicSession: string;
   qualifications: string;
   experience: string;
+  office: TeacherOffice;
 }
 
 export default function NewTeacherPage() {
@@ -80,9 +82,13 @@ export default function NewTeacherPage() {
         academicSession: data.academicSession,
         qualifications: data.qualifications?.trim() || '',
         experience: data.experience?.trim() || '',
+        office: data.office || 'none', // Administrative office assignment
       };
 
-      // Save user using API first, then fallback to local storage
+      // Save user using multiple storage methods for reliability
+      let saveSuccess = false;
+      
+      // Method 1: Try API first
       try {
         const response = await fetch('/api/users', {
           method: 'POST',
@@ -94,6 +100,7 @@ export default function NewTeacherPage() {
         
         if (response.ok) {
           console.log('User saved to API successfully');
+          saveSuccess = true;
         } else {
           const errorData = await response.json();
           if (errorData.error === 'Email already exists') {
@@ -103,13 +110,42 @@ export default function NewTeacherPage() {
           throw new Error('API save failed');
         }
       } catch (apiError) {
-        console.log('API not available, using local storage...');
-        // Fallback to local storage
-        const saved = saveCreatedUser(newUser);
-        if (!saved) {
-          toast.error('A user with this email already exists');
-          return;
+        console.log('API not available, trying local storage...');
+      }
+      
+      // Method 2: Save to localStorage (always do this as backup)
+      try {
+        const localSaved = saveCreatedUser(newUser);
+        if (localSaved) {
+          console.log('User saved to localStorage successfully');
+          saveSuccess = true;
+        } else {
+          console.log('Failed to save to localStorage - email might exist');
+          if (!saveSuccess) {
+            toast.error('A user with this email already exists');
+            return;
+          }
         }
+      } catch (localError) {
+        console.log('localStorage save failed:', localError);
+      }
+      
+      // Method 3: Save to shared storage
+      try {
+        const sharedSaved = await addSharedUser(newUser);
+        if (sharedSaved) {
+          console.log('User saved to shared storage successfully');
+          saveSuccess = true;
+        } else {
+          console.log('Failed to save to shared storage - email might exist');
+        }
+      } catch (sharedError) {
+        console.log('Shared storage save failed:', sharedError);
+      }
+      
+      if (!saveSuccess) {
+        toast.error('Failed to save teacher. Please try again.');
+        return;
       }
       
       toast.success(`Teacher account created successfully!
@@ -288,6 +324,23 @@ The teacher can now login with these credentials.
               <div>
                 <h3 className="text-lg font-medium text-gray-900 mb-4">Professional Information</h3>
                 <div className="grid grid-cols-1 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Administrative Office Assignment</label>
+                    <select
+                      {...register('office')}
+                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      {TEACHER_OFFICES.map((office) => (
+                        <option key={office.value} value={office.value}>
+                          {office.label} {office.value !== 'none' && `- ${office.description}`}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-sm text-gray-500">
+                      Assign an administrative office to this teacher. Office holders will be redirected to their respective dashboards and can submit reports to admin.
+                    </p>
+                  </div>
+
                   <div>
                     <label className="block text-sm font-medium text-gray-700">Academic Session</label>
                     <select

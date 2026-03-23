@@ -31,45 +31,164 @@ export default function AdminFinancialReportReview() {
     }
   }, [user]);
 
-  const loadReports = () => {
-    const pending = financialReportStorage.getPendingReports();
-    const all = financialReportStorage.getAllReports();
-    setPendingReports(pending);
-    setAllReports(all);
-  };
-
-  const handleApprove = (reportId: string, comments?: string) => {
-    const updated = financialReportStorage.approveReport(
-      reportId, 
-      user!.id, 
-      `${user!.firstName} ${user!.lastName}`,
-      comments
-    );
-    if (updated) {
-      loadReports();
-      setReviewingReport(null);
-      setReviewComments('');
-      alert('Financial report approved successfully!');
+  const loadReports = async () => {
+    try {
+      // Try API first for all reports
+      const allResponse = await fetch('/api/reports?type=financial');
+      const pendingResponse = await fetch('/api/reports?type=financial&status=pending');
+      
+      if (allResponse.ok && pendingResponse.ok) {
+        const allData = await allResponse.json();
+        const pendingData = await pendingResponse.json();
+        
+        const allReportsData = (allData.reports || []).map((report: any) => ({
+          ...report,
+          id: report.id,
+          createdAt: new Date(report.dateCreated),
+          updatedAt: new Date(report.dateCreated),
+          submittedAt: report.status === 'submitted' || report.status === 'approved' || report.status === 'rejected' ? new Date(report.dateCreated) : undefined,
+          reviewedAt: report.dateReviewed ? new Date(report.dateReviewed) : undefined,
+          status: report.status === 'pending' ? 'submitted' : report.status,
+        }));
+        
+        const pendingReportsData = (pendingData.reports || []).map((report: any) => ({
+          ...report,
+          id: report.id,
+          createdAt: new Date(report.dateCreated),
+          updatedAt: new Date(report.dateCreated),
+          submittedAt: new Date(report.dateCreated),
+          status: 'submitted',
+        }));
+        
+        setAllReports(allReportsData);
+        setPendingReports(pendingReportsData);
+      } else {
+        // Fallback to localStorage
+        const pending = financialReportStorage.getPendingReports();
+        const all = financialReportStorage.getAllReports();
+        setPendingReports(pending);
+        setAllReports(all);
+      }
+    } catch (error) {
+      console.error('Error loading reports:', error);
+      // Fallback to localStorage on error
+      const pending = financialReportStorage.getPendingReports();
+      const all = financialReportStorage.getAllReports();
+      setPendingReports(pending);
+      setAllReports(all);
     }
   };
 
-  const handleReject = (reportId: string, comments: string) => {
+  const handleApprove = async (reportId: string, comments?: string) => {
+    try {
+      // First try to update via API
+      const response = await fetch(`/api/reports?id=${reportId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          status: 'approved',
+          approvalStatus: 'approved',
+          reviewedBy: user!.id,
+          reviewedByName: `${user!.firstName} ${user!.lastName}`,
+          reviewComments: comments,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        
+        // Update localStorage as well
+        financialReportStorage.approveReport(
+          reportId, 
+          user!.id, 
+          `${user!.firstName} ${user!.lastName}`,
+          comments
+        );
+        
+        loadReports();
+        setReviewingReport(null);
+        setReviewComments('');
+        alert('Financial report approved successfully!');
+      } else {
+        throw new Error('Failed to update via API');
+      }
+    } catch (error) {
+      console.error('Error approving report via API:', error);
+      
+      // Fallback to localStorage only
+      const updated = financialReportStorage.approveReport(
+        reportId, 
+        user!.id, 
+        `${user!.firstName} ${user!.lastName}`,
+        comments
+      );
+      if (updated) {
+        loadReports();
+        setReviewingReport(null);
+        setReviewComments('');
+        alert('Financial report approved successfully (saved locally)!');
+      }
+    }
+  };
+
+  const handleReject = async (reportId: string, comments: string) => {
     if (!comments.trim()) {
       alert('Please provide comments for rejection');
       return;
     }
 
-    const updated = financialReportStorage.rejectReport(
-      reportId, 
-      user!.id, 
-      `${user!.firstName} ${user!.lastName}`,
-      comments
-    );
-    if (updated) {
-      loadReports();
-      setReviewingReport(null);
-      setReviewComments('');
-      alert('Financial report rejected and sent back for revision');
+    try {
+      // First try to update via API
+      const response = await fetch(`/api/reports?id=${reportId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          status: 'rejected',
+          approvalStatus: 'rejected',
+          reviewedBy: user!.id,
+          reviewedByName: `${user!.firstName} ${user!.lastName}`,
+          reviewComments: comments,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        
+        // Update localStorage as well
+        financialReportStorage.rejectReport(
+          reportId, 
+          user!.id, 
+          `${user!.firstName} ${user!.lastName}`,
+          comments
+        );
+        
+        loadReports();
+        setReviewingReport(null);
+        setReviewComments('');
+        alert('Financial report rejected and sent back for revision');
+      } else {
+        throw new Error('Failed to update via API');
+      }
+    } catch (error) {
+      console.error('Error rejecting report via API:', error);
+      
+      // Fallback to localStorage only
+      const updated = financialReportStorage.rejectReport(
+        reportId, 
+        user!.id, 
+        `${user!.firstName} ${user!.lastName}`,
+        comments
+      );
+      if (updated) {
+        loadReports();
+        setReviewingReport(null);
+        setReviewComments('');
+        alert('Financial report rejected and sent back for revision (saved locally)');
+      }
     }
   };
 

@@ -1,62 +1,78 @@
 import { NextRequest, NextResponse } from 'next/server';
+import fs from 'fs';
+import path from 'path';
 
-// GET - Calculate financial overview for session/term
+const PAYMENTS_FILE = path.join(process.cwd(), 'data', 'payments.json');
+const EXPENDITURES_FILE = path.join(process.cwd(), 'data', 'expenditures.json');
+
+function readJSON(filePath: string): any[] {
+  try {
+    if (!fs.existsSync(filePath)) return [];
+    const raw = fs.readFileSync(filePath, 'utf8').trim();
+    if (!raw) return [];
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const session = searchParams.get('session');
     const term = searchParams.get('term');
-    
+
     if (!session || !term) {
       return NextResponse.json({ error: 'Session and term required' }, { status: 400 });
     }
-    
-    // Get payments for the session/term
-    const paymentsResponse = await fetch(`${request.nextUrl.origin}/api/payments?session=${session}&term=${term}`);
-    const paymentsData = await paymentsResponse.json();
-    const payments = paymentsData.payments || [];
-    
-    // Get expenditures for the session/term
-    const expendituresResponse = await fetch(`${request.nextUrl.origin}/api/expenditures?session=${session}&term=${term}`);
-    const expendituresData = await expendituresResponse.json();
-    const expenditures = expendituresData.expenditures || [];
-    
-    // Calculate totals
-    const totalIncome = payments.reduce((sum: number, payment: any) => sum + (payment.amount || 0), 0);
-    const approvedExpenditures = expenditures.filter((exp: any) => exp.status === 'approved');
-    const totalExpenditure = approvedExpenditures.reduce((sum: number, exp: any) => sum + (exp.amount || 0), 0);
+
+    // Read directly from files — no internal HTTP calls
+    const allPayments: any[] = readJSON(PAYMENTS_FILE);
+    const allExpenditures: any[] = readJSON(EXPENDITURES_FILE);
+
+    const payments = allPayments.filter(
+      (p) => p.academicSession === session && p.term === term
+    );
+
+    const expenditures = allExpenditures.filter(
+      (e) => e.academicSession === session
+    );
+
+    const totalIncome = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+    const approvedExpenditures = expenditures.filter((e) => e.status === 'approved' || e.status === 'completed');
+    const totalExpenditure = approvedExpenditures.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
     const availableFunds = totalIncome - totalExpenditure;
-    
-    // Payment method breakdown
-    const paymentMethods = payments.reduce((acc: any, payment: any) => {
-      const method = payment.paymentMethod || 'Unknown';
-      acc[method] = (acc[method] || 0) + payment.amount;
+
+    const paymentMethods = payments.reduce((acc: any, p) => {
+      const method = p.paymentMethod || 'Unknown';
+      acc[method] = (acc[method] || 0) + (Number(p.amount) || 0);
       return acc;
     }, {});
-    
-    // Expenditure category breakdown
-    const expenditureCategories = approvedExpenditures.reduce((acc: any, exp: any) => {
-      const category = exp.category || 'Other';
-      acc[category] = (acc[category] || 0) + exp.amount;
+
+    const expenditureCategories = approvedExpenditures.reduce((acc: any, e) => {
+      const cat = e.category || 'Other';
+      acc[cat] = (acc[cat] || 0) + (Number(e.amount) || 0);
       return acc;
     }, {});
-    
-    const financialOverview = {
-      session,
-      term,
-      totalIncome,
-      totalExpenditure,
-      availableFunds,
-      totalPayments: payments.length,
-      totalExpenditures: expenditures.length,
-      approvedExpenditures: approvedExpenditures.length,
-      pendingExpenditures: expenditures.filter((exp: any) => exp.status === 'pending').length,
-      paymentMethods,
-      expenditureCategories,
-      lastUpdated: new Date().toISOString()
-    };
-    
-    return NextResponse.json({ financialOverview });
+
+    return NextResponse.json({
+      financialOverview: {
+        session,
+        term,
+        totalIncome,
+        totalRevenue: totalIncome,
+        totalExpenditure,
+        availableFunds,
+        totalPayments: payments.length,
+        totalExpenditures: expenditures.length,
+        approvedExpenditures: approvedExpenditures.length,
+        pendingExpenditures: expenditures.filter((e) => e.status === 'pending').length,
+        paymentMethods,
+        expenditureCategories,
+        lastUpdated: new Date().toISOString(),
+      },
+    });
   } catch (error) {
     console.error('GET /api/finances error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

@@ -28,9 +28,10 @@ export const getStudentPayments = (): StudentPayment[] => {
     const stored = localStorage.getItem(PAYMENTS_STORAGE_KEY);
     if (stored) {
       const payments = JSON.parse(stored);
-      // Convert date strings back to Date objects
+      // Convert date strings back to Date objects and ensure amounts are numbers
       return payments.map((payment: any) => ({
         ...payment,
+        amount: Number(payment.amount) || 0, // Ensure amount is always a number
         createdAt: new Date(payment.createdAt),
         updatedAt: new Date(payment.updatedAt)
       }));
@@ -47,6 +48,7 @@ export const saveStudentPayment = (payment: Omit<StudentPayment, 'id' | 'created
   
   const newPayment: StudentPayment = {
     ...payment,
+    amount: Number(payment.amount) || 0, // Ensure amount is always a number
     id: `payment-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
     createdAt: new Date(),
     updatedAt: new Date()
@@ -98,116 +100,9 @@ export const resetDemoPayments = (): void => {
 
 // Initialize with comprehensive demo payments for testing
 export const initializeDemoPayments = (): void => {
-  const existingPayments = getStudentPayments();
-  
-  // Only initialize if there are no payments at all
-  if (existingPayments.length === 0) {
-    const demoPayments = [];
-    
-    // Generate payments for multiple sessions and all terms
-    const sessions = ['2023/2024', '2024/2025', '2025/2026'];
-    const terms = ['First Term', 'Second Term', 'Third Term'];
-    
-    // Student data for generating payments
-    const students = [
-      { id: 'student-demo-1', name: 'David Smith', admission: 'SPA/2023/001' },
-      { id: 'student-demo-2', name: 'John Adebayo', admission: 'SPA/2023/002' },
-      { id: 'student-demo-3', name: 'Sarah Johnson', admission: 'SPA/2023/003' },
-      { id: 'student-demo-4', name: 'Michael Brown', admission: 'SPA/2023/004' },
-      { id: 'student-demo-5', name: 'Fatima Hassan', admission: 'SPA/2023/005' },
-      { id: 'student-demo-6', name: 'Emmanuel Okafor', admission: 'SPA/2023/006' },
-      { id: 'student-demo-7', name: 'Aisha Musa', admission: 'SPA/2023/007' },
-      { id: 'student-demo-8', name: 'Peter Okoro', admission: 'SPA/2023/008' },
-      { id: 'student-demo-9', name: 'Blessing Eze', admission: 'SPA/2023/009' },
-      { id: 'student-demo-10', name: 'Ibrahim Yusuf', admission: 'SPA/2023/010' }
-    ];
-    
-    const paymentMethods = ['Bank Transfer', 'Cash', 'Debit Card', 'Mobile Money'];
-    const banks = ['First Bank Nigeria', 'GTBank', 'Access Bank', 'UBA', 'Zenith Bank'];
-    
-    let receiptCounter = 1;
-    
-    // Generate payments for each session and term
-    sessions.forEach((session, sessionIndex) => {
-      terms.forEach((term, termIndex) => {
-        // Generate 3-7 payments per term (random)
-        const paymentsCount = Math.floor(Math.random() * 5) + 3;
-        
-        for (let i = 0; i < paymentsCount; i++) {
-          const student = students[Math.floor(Math.random() * students.length)];
-          const paymentMethod = paymentMethods[Math.floor(Math.random() * paymentMethods.length)];
-          const bank = banks[Math.floor(Math.random() * banks.length)];
-          
-          // Generate realistic payment amounts (₦30,000 to ₦150,000)
-          const baseAmount = 30000 + Math.floor(Math.random() * 120000);
-          const amount = Math.round(baseAmount / 5000) * 5000; // Round to nearest 5000
-          
-          const payment = {
-            studentId: student.id,
-            studentName: student.name,
-            admissionNumber: student.admission,
-            receiptNumber: `SPA/${session.split('/')[0]}/${String(receiptCounter).padStart(4, '0')}`,
-            amount: amount,
-            paymentMethod: paymentMethod,
-            bankName: paymentMethod === 'Bank Transfer' ? bank : undefined,
-            accountNumber: paymentMethod === 'Bank Transfer' ? `${Math.floor(Math.random() * 9000000000) + 1000000000}` : undefined,
-            transactionId: `TXN${Date.now()}${Math.floor(Math.random() * 1000)}`,
-            description: `School Fees Payment - ${term}`,
-            academicSession: session,
-            term: term,
-            dateIssued: new Date(2023 + sessionIndex, termIndex * 4, Math.floor(Math.random() * 28) + 1).toISOString(),
-            confirmedBy: 'accountant-1'
-          };
-          
-          demoPayments.push(payment);
-          receiptCounter++;
-        }
-      });
-    });
-    
-    // Add some additional payments for current session (2024/2025) to make it more realistic
-    const currentSessionPayments = [
-      {
-        studentId: 'student-current-1',
-        studentName: 'Grace Adamu',
-        admissionNumber: 'SPA/2024/011',
-        receiptNumber: `SPA/2024/${String(receiptCounter++).padStart(4, '0')}`,
-        amount: 85000,
-        paymentMethod: 'Bank Transfer',
-        bankName: 'First Bank Nigeria',
-        accountNumber: '2013456789',
-        transactionId: 'TXN2024001',
-        description: 'School Fees Payment - First Term',
-        academicSession: '2024/2025',
-        term: 'First Term',
-        dateIssued: new Date().toISOString(),
-        confirmedBy: 'accountant-1'
-      },
-      {
-        studentId: 'student-current-2',
-        studentName: 'Daniel Okonkwo',
-        admissionNumber: 'SPA/2024/012',
-        receiptNumber: `SPA/2024/${String(receiptCounter++).padStart(4, '0')}`,
-        amount: 95000,
-        paymentMethod: 'Cash',
-        transactionId: 'CASH2024001',
-        description: 'School Fees Payment - Second Term',
-        academicSession: '2024/2025',
-        term: 'Second Term',
-        dateIssued: new Date().toISOString(),
-        confirmedBy: 'accountant-1'
-      }
-    ];
-    
-    demoPayments.push(...currentSessionPayments);
-    
-    // Save all payments
-    demoPayments.forEach(payment => {
-      saveStudentPayment(payment);
-    });
-    
-    console.log(`Initialized ${demoPayments.length} demo payments across ${sessions.length} sessions and ${terms.length} terms`);
-  }
+  // Don't automatically initialize demo payments
+  // Users can manually create payments as needed
+  return;
 };
 
 // Get payments by session and term

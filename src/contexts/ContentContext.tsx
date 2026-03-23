@@ -202,19 +202,21 @@ export function ContentProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Save sections to localStorage whenever they change
+  // Save sections to localStorage — strip images/videos to avoid quota errors
+  // (gallery media is stored server-side via /api/gallery)
   useEffect(() => {
     if (!loading && sections.length > 0) {
       try {
-        const sectionsData = JSON.stringify(sections);
-        console.log('ContentContext: Saving sections to localStorage, size:', (sectionsData.length / 1024).toFixed(2), 'KB');
-        localStorage.setItem(STORAGE_KEYS.SECTIONS, sectionsData);
-        console.log('ContentContext: Sections saved successfully');
+        const stripped = sections.map(s => ({ ...s, images: [], videos: [] }));
+        localStorage.setItem(STORAGE_KEYS.SECTIONS, JSON.stringify(stripped));
       } catch (error) {
-        console.error('ContentContext: Failed to save sections to localStorage:', error);
         if (error instanceof Error && error.name === 'QuotaExceededError') {
-          console.error('ContentContext: localStorage quota exceeded - images may be too large');
-          // You could implement fallback logic here, like removing images or using a different storage method
+          // Last resort: clear and retry with stripped data
+          try {
+            localStorage.removeItem(STORAGE_KEYS.SECTIONS);
+            const stripped = sections.map(s => ({ ...s, images: [], videos: [] }));
+            localStorage.setItem(STORAGE_KEYS.SECTIONS, JSON.stringify(stripped));
+          } catch {}
         }
       }
     }
@@ -228,32 +230,13 @@ export function ContentProvider({ children }: { children: React.ReactNode }) {
   }, [newsEvents, loading]);
 
   const updateSection = (updatedSection: HomepageSection) => {
-    console.log('ContentContext: Updating section', updatedSection.type, 'with images:', updatedSection.images);
-    console.log('ContentContext: Images count:', updatedSection.images?.length || 0);
-    
-    // Check localStorage size
-    if (updatedSection.images && updatedSection.images.length > 0) {
-      const totalSize = JSON.stringify(updatedSection.images).length;
-      console.log('ContentContext: Total images size (chars):', totalSize);
-      console.log('ContentContext: Total images size (MB):', (totalSize / 1024 / 1024).toFixed(2));
-      
-      // Check if we're approaching localStorage limits (usually 5-10MB)
-      if (totalSize > 5 * 1024 * 1024) { // 5MB
-        console.warn('ContentContext: Images size is large, may cause localStorage issues');
-      }
-    }
-    
     setSections(prev => {
       const existingIndex = prev.findIndex(section => section.id === updatedSection.id);
       if (existingIndex >= 0) {
-        // Update existing section
         const updated = [...prev];
         updated[existingIndex] = updatedSection;
-        console.log('ContentContext: Updated existing section', updated[existingIndex]);
         return updated;
       } else {
-        // Add new section
-        console.log('ContentContext: Adding new section', updatedSection);
         return [...prev, updatedSection];
       }
     });
@@ -283,12 +266,7 @@ export function ContentProvider({ children }: { children: React.ReactNode }) {
   };
 
   const getSectionByType = (type: string) => {
-    const section = sections.find(section => section.type === type && section.isActive);
-    console.log('ContentContext: Getting section by type', type, 'found:', section);
-    if (section && section.images) {
-      console.log('ContentContext: Section images:', section.images);
-    }
-    return section;
+    return sections.find(section => section.type === type && section.isActive);
   };
 
   const getActiveNewsEvents = () => {

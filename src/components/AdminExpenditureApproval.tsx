@@ -2,14 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { 
-  expenditureStorage, 
-  ExpenditureRequest, 
-  EXPENDITURE_CATEGORIES,
-  EXPENDITURE_PRIORITIES
-} from '@/lib/expenditureStorage';
 import { ACADEMIC_SESSIONS, TERMS } from '@/lib/academicSessions';
-import { getFinancialOverview } from '@/lib/paymentsStorage';
 import {
   CheckCircleIcon,
   XCircleIcon,
@@ -22,10 +15,161 @@ import {
   UserIcon,
 } from '@heroicons/react/24/outline';
 
+// Local type definitions to avoid import issues
+type ExpenditureStatus = 'pending' | 'approved' | 'rejected' | 'completed';
+type ExpenditureCategory = 
+  | 'supplies'
+  | 'equipment'
+  | 'maintenance'
+  | 'utilities'
+  | 'salaries'
+  | 'transportation'
+  | 'events'
+  | 'other';
+
+type ExpenditurePriority = 'low' | 'medium' | 'high' | 'urgent';
+
+interface ExpenditureRequest {
+  id: string;
+  title: string;
+  description: string;
+  category: ExpenditureCategory;
+  priority: ExpenditurePriority;
+  amount: number;
+  academicSession: string;
+  term?: string;
+  status: ExpenditureStatus;
+  requestedBy: string;
+  requestedByName: string;
+  requestedAt: Date;
+  approvedBy?: string;
+  approvedByName?: string;
+  approvedAt?: Date;
+  rejectedReason?: string;
+  completedAt?: Date;
+  notes?: string;
+  updatedAt: Date;
+}
+
+// Local constants to avoid import issues
+const EXPENDITURE_CATEGORIES = [
+  { value: 'supplies', label: 'Office Supplies' },
+  { value: 'equipment', label: 'Equipment' },
+  { value: 'maintenance', label: 'Maintenance & Repairs' },
+  { value: 'utilities', label: 'Utilities' },
+  { value: 'salaries', label: 'Salaries & Wages' },
+  { value: 'transportation', label: 'Transportation' },
+  { value: 'events', label: 'Events & Activities' },
+  { value: 'other', label: 'Other' },
+] as const;
+
+const EXPENDITURE_PRIORITIES = [
+  { value: 'low', label: 'Low', color: 'bg-gray-100 text-gray-800' },
+  { value: 'medium', label: 'Medium', color: 'bg-blue-100 text-blue-800' },
+  { value: 'high', label: 'High', color: 'bg-orange-100 text-orange-800' },
+  { value: 'urgent', label: 'Urgent', color: 'bg-red-100 text-red-800' },
+] as const;
+
+// Local storage functions to avoid import issues
+const STORAGE_KEY = 'expenditure_requests';
+
+function loadFromStorage(): ExpenditureRequest[] {
+  if (typeof window === 'undefined') return [];
+  
+  try {
+    const data = localStorage.getItem(STORAGE_KEY);
+    if (!data) return [];
+    
+    const parsed = JSON.parse(data);
+    return parsed.map((req: any) => ({
+      ...req,
+      requestedAt: req.requestedAt ? new Date(req.requestedAt) : new Date(),
+      approvedAt: req.approvedAt ? new Date(req.approvedAt) : undefined,
+      completedAt: req.completedAt ? new Date(req.completedAt) : undefined,
+      updatedAt: req.updatedAt ? new Date(req.updatedAt) : new Date(),
+    }));
+  } catch (error) {
+    console.error('Error loading expenditure requests from storage:', error);
+    return [];
+  }
+}
+
+function saveToStorage(requests: ExpenditureRequest[]): void {
+  if (typeof window === 'undefined') return;
+  
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(requests));
+  } catch (error) {
+    console.error('Error saving expenditure requests to storage:', error);
+  }
+}
+
+function approveRequest(
+  requestId: string,
+  approvedBy: string,
+  approvedByName: string,
+  notes?: string
+): ExpenditureRequest | null {
+  const requests = loadFromStorage();
+  const index = requests.findIndex(req => req.id === requestId);
+  
+  if (index === -1) return null;
+  
+  requests[index] = {
+    ...requests[index],
+    status: 'approved',
+    approvedBy,
+    approvedByName,
+    approvedAt: new Date(),
+    notes,
+    updatedAt: new Date(),
+  };
+  
+  saveToStorage(requests);
+  return requests[index];
+}
+
+function rejectRequest(
+  requestId: string,
+  rejectedBy: string,
+  rejectedByName: string,
+  reason: string
+): ExpenditureRequest | null {
+  const requests = loadFromStorage();
+  const index = requests.findIndex(req => req.id === requestId);
+  
+  if (index === -1) return null;
+  
+  requests[index] = {
+    ...requests[index],
+    status: 'rejected',
+    approvedBy: rejectedBy,
+    approvedByName: rejectedByName,
+    approvedAt: new Date(),
+    rejectedReason: reason,
+    updatedAt: new Date(),
+  };
+  
+  saveToStorage(requests);
+  return requests[index];
+}
+
+function getRequestById(requestId: string): ExpenditureRequest | undefined {
+  // First try localStorage
+  const requests = loadFromStorage();
+  const localRequest = requests.find(req => req.id === requestId);
+  if (localRequest) {
+    return localRequest;
+  }
+  
+  // If not found in localStorage, we'll need to check API in the component
+  return undefined;
+}
+
 export default function AdminExpenditureApproval() {
   const { user } = useAuth();
   const [requests, setRequests] = useState<ExpenditureRequest[]>([]);
-  const [selectedSession, setSelectedSession] = useState('2023/2024');
+  const [selectedSession, setSelectedSession] = useState('2025/2026');
   const [selectedTerm, setSelectedTerm] = useState('First Term');
   const [viewingRequest, setViewingRequest] = useState<ExpenditureRequest | null>(null);
   const [financialData, setFinancialData] = useState<any>(null);
@@ -38,6 +182,16 @@ export default function AdminExpenditureApproval() {
     }
   }, [user, selectedSession, selectedTerm]);
 
+  // Auto-refresh every 30 seconds
+  useEffect(() => {
+    if (!user || user.role !== 'admin') return;
+    const interval = setInterval(() => {
+      loadRequests();
+      loadFinancialData();
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, [user, selectedSession, selectedTerm]);
+
   const loadRequests = async () => {
     setLoading(true);
     try {
@@ -45,10 +199,18 @@ export default function AdminExpenditureApproval() {
       const response = await fetch(`/api/expenditures?session=${selectedSession}`);
       if (response.ok) {
         const data = await response.json();
-        setRequests(data.expenditures || []);
+        // Convert date strings to Date objects
+        const expenditures = (data.expenditures || []).map((req: any) => ({
+          ...req,
+          requestedAt: req.requestedAt ? new Date(req.requestedAt) : new Date(),
+          approvedAt: req.approvedAt ? new Date(req.approvedAt) : undefined,
+          completedAt: req.completedAt ? new Date(req.completedAt) : undefined,
+          updatedAt: req.updatedAt ? new Date(req.updatedAt) : new Date(),
+        }));
+        setRequests(expenditures);
       } else {
         // Fallback to localStorage
-        const allRequests = expenditureStorage.getAllRequests();
+        const allRequests = loadFromStorage();
         const sessionRequests = allRequests.filter(req => 
           req.academicSession === selectedSession
         );
@@ -57,7 +219,7 @@ export default function AdminExpenditureApproval() {
     } catch (error) {
       console.error('Error loading requests:', error);
       // Fallback to localStorage on error
-      const allRequests = expenditureStorage.getAllRequests();
+      const allRequests = loadFromStorage();
       const sessionRequests = allRequests.filter(req => 
         req.academicSession === selectedSession
       );
@@ -67,58 +229,183 @@ export default function AdminExpenditureApproval() {
     }
   };
 
-  const loadFinancialData = () => {
+  const loadFinancialData = async () => {
     try {
-      const overview = getFinancialOverview(selectedSession, selectedTerm);
-      setFinancialData(overview);
+      const res = await fetch(
+        `/api/finances?session=${encodeURIComponent(selectedSession)}&term=${encodeURIComponent(selectedTerm)}`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setFinancialData(data.financialOverview);
+      }
     } catch (error) {
       console.error('Error loading financial data:', error);
     }
   };
 
-  const handleApproveRequest = (requestId: string, notes?: string) => {
+  const handleApproveRequest = async (requestId: string, notes?: string) => {
     if (!user) return;
 
-    const request = expenditureStorage.getRequestById(requestId);
-    if (!request) return;
+    // First try to find request in current state
+    let request = requests.find(r => r.id === requestId);
+    
+    // If not found in state, try localStorage
+    if (!request) {
+      request = getRequestById(requestId);
+    }
+    
+    // If still not found, try to fetch from API
+    if (!request) {
+      try {
+        const response = await fetch(`/api/expenditures`);
+        if (response.ok) {
+          const data = await response.json();
+          const allExpenditures = data.expenditures || [];
+          request = allExpenditures.find((exp: any) => exp.id === requestId);
+        }
+      } catch (error) {
+        console.error('Error fetching expenditure from API:', error);
+      }
+    }
 
-    // Check if there are sufficient funds
-    if (financialData && request.amount > financialData.totalRevenue) {
-      alert(`Insufficient funds! Available: ₦${financialData.totalRevenue.toLocaleString()}, Requested: ₦${request.amount.toLocaleString()}`);
+    if (!request) {
+      alert('Request not found! The expenditure may have been deleted or does not exist.');
+      console.error('Request not found:', requestId);
+      console.log('Available requests:', requests.map(r => ({ id: r.id, title: r.title })));
       return;
     }
 
-    const approved = expenditureStorage.approveRequest(
-      requestId, 
-      user.id, 
-      `${user.firstName} ${user.lastName}`,
-      notes
-    );
+    // Check if there are sufficient funds
+    const availableFunds = financialData?.availableFunds ?? (financialData?.totalRevenue ?? 0);
+    if (financialData && request.amount > availableFunds) {
+      alert(`Insufficient funds! Available: ₦${availableFunds.toLocaleString()}, Requested: ₦${request.amount.toLocaleString()}`);
+      return;
+    }
 
-    if (approved) {
-      // Update the request in the list
-      setRequests(prev => prev.map(r => r.id === requestId ? approved : r));
+    try {
+      console.log('Attempting to approve request:', requestId, 'Request data:', request);
       
-      // Reload financial data to reflect the expenditure
-      loadFinancialData();
+      // First try to update via API
+      const response = await fetch(`/api/expenditures?id=${requestId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          status: 'approved',
+          approvedBy: user.id,
+          approvedByName: `${user.firstName} ${user.lastName}`,
+          approvedAt: new Date().toISOString(),
+          notes,
+        }),
+      });
+
+      console.log('API response status:', response.status);
       
-      alert(`Request approved successfully! Amount: ₦${approved.amount.toLocaleString()}`);
+      if (response.ok) {
+        const data = await response.json();
+        console.log('API response data:', data);
+        
+        const updatedRequest = {
+          ...data.expenditure,
+          requestedAt: new Date(data.expenditure.requestedAt),
+          approvedAt: new Date(data.expenditure.approvedAt),
+          updatedAt: new Date(data.expenditure.updatedAt),
+        };
+        
+        // Update localStorage as well
+        approveRequest(requestId, user.id, `${user.firstName} ${user.lastName}`, notes);
+        
+        // Update the request in the list
+        setRequests(prev => prev.map(r => r.id === requestId ? updatedRequest : r));
+        
+        // Reload financial data to reflect the expenditure
+        loadFinancialData();
+        
+        alert(`Request approved successfully! Amount: ₦${updatedRequest.amount.toLocaleString()}`);
+      } else {
+        const errorText = await response.text();
+        console.error('API error response:', errorText);
+        throw new Error(`API request failed: ${response.status} - ${errorText}`);
+      }
+    } catch (error) {
+      console.error('Error approving request via API:', error);
+      
+      // Fallback to localStorage only
+      const approved = approveRequest(
+        requestId, 
+        user.id, 
+        `${user.firstName} ${user.lastName}`,
+        notes
+      );
+
+      if (approved) {
+        // Update the request in the list
+        setRequests(prev => prev.map(r => r.id === requestId ? approved : r));
+        
+        // Reload financial data to reflect the expenditure
+        loadFinancialData();
+        
+        alert(`Request approved successfully (saved locally)! Amount: ₦${approved.amount.toLocaleString()}`);
+      } else {
+        alert('Failed to approve request. The request may not exist or cannot be modified.');
+      }
     }
   };
 
-  const handleRejectRequest = (requestId: string, reason: string) => {
+  const handleRejectRequest = async (requestId: string, reason: string) => {
     if (!user || !reason.trim()) return;
 
-    const rejected = expenditureStorage.rejectRequest(
-      requestId, 
-      user.id, 
-      `${user.firstName} ${user.lastName}`,
-      reason
-    );
+    try {
+      // First try to update via API
+      const response = await fetch(`/api/expenditures?id=${requestId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          status: 'rejected',
+          approvedBy: user.id,
+          approvedByName: `${user.firstName} ${user.lastName}`,
+          approvedAt: new Date().toISOString(),
+          rejectedReason: reason,
+        }),
+      });
 
-    if (rejected) {
-      setRequests(prev => prev.map(r => r.id === requestId ? rejected : r));
-      alert('Request rejected successfully!');
+      if (response.ok) {
+        const data = await response.json();
+        const updatedRequest = {
+          ...data.expenditure,
+          requestedAt: new Date(data.expenditure.requestedAt),
+          approvedAt: new Date(data.expenditure.approvedAt),
+          updatedAt: new Date(data.expenditure.updatedAt),
+        };
+        
+        // Update localStorage as well
+        rejectRequest(requestId, user.id, `${user.firstName} ${user.lastName}`, reason);
+        
+        // Update the request in the list
+        setRequests(prev => prev.map(r => r.id === requestId ? updatedRequest : r));
+        
+        alert('Request rejected successfully!');
+      } else {
+        throw new Error('Failed to update via API');
+      }
+    } catch (error) {
+      console.error('Error rejecting request via API:', error);
+      
+      // Fallback to localStorage only
+      const rejected = rejectRequest(
+        requestId, 
+        user.id, 
+        `${user.firstName} ${user.lastName}`,
+        reason
+      );
+
+      if (rejected) {
+        setRequests(prev => prev.map(r => r.id === requestId ? rejected : r));
+        alert('Request rejected successfully (saved locally)!');
+      }
     }
   };
 
@@ -174,7 +461,8 @@ export default function AdminExpenditureApproval() {
 
   const getAvailableFunds = () => {
     if (!financialData) return 0;
-    return financialData.totalRevenue - getApprovedExpenditures();
+    // Use the server-calculated availableFunds (totalRevenue - approvedExpenditures)
+    return financialData.availableFunds ?? (financialData.totalRevenue - getApprovedExpenditures());
   };
 
   if (!user || user.role !== 'admin') {
@@ -189,9 +477,17 @@ export default function AdminExpenditureApproval() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">Expenditure Approval</h2>
-        <p className="text-gray-600">Review and approve expenditure requests from staff</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Expenditure Approval</h2>
+          <p className="text-gray-600">Review and approve expenditure requests from staff</p>
+        </div>
+        <button
+          onClick={() => { loadRequests(); loadFinancialData(); }}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
+        >
+          Refresh
+        </button>
       </div>
 
       {/* Session and Term Selector */}
@@ -331,7 +627,7 @@ export default function AdminExpenditureApproval() {
                         </div>
                         <div className="flex items-center">
                           <CalendarIcon className="h-4 w-4 mr-1" />
-                          <strong>Date:</strong> {request.requestedAt.toLocaleDateString()}
+                          <strong>Date:</strong> {request.requestedAt ? new Date(request.requestedAt).toLocaleDateString() : 'N/A'}
                         </div>
                       </div>
                       
@@ -440,13 +736,13 @@ export default function AdminExpenditureApproval() {
                 <div><strong>Requested by:</strong> {viewingRequest.requestedByName}</div>
               </div>
               <div className="space-y-2">
-                <div><strong>Request Date:</strong> {viewingRequest.requestedAt.toLocaleDateString()}</div>
+                <div><strong>Request Date:</strong> {viewingRequest.requestedAt ? new Date(viewingRequest.requestedAt).toLocaleDateString() : 'N/A'}</div>
                 <div><strong>Status:</strong> <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(viewingRequest.status)}`}>{viewingRequest.status}</span></div>
                 {viewingRequest.approvedByName && (
                   <div><strong>Reviewed by:</strong> {viewingRequest.approvedByName}</div>
                 )}
                 {viewingRequest.approvedAt && (
-                  <div><strong>Review Date:</strong> {viewingRequest.approvedAt.toLocaleDateString()}</div>
+                  <div><strong>Review Date:</strong> {new Date(viewingRequest.approvedAt).toLocaleDateString()}</div>
                 )}
               </div>
             </div>

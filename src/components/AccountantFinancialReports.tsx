@@ -48,9 +48,31 @@ export default function AccountantFinancialReports() {
     }
   }, [formData.term, formData.academicSession]);
 
-  const loadReports = () => {
-    const userReports = financialReportStorage.getReportsByAccountant(user!.id);
-    setReports(userReports);
+  const loadReports = async () => {
+    try {
+      // Try API first
+      const response = await fetch(`/api/reports?createdBy=${user!.id}&type=financial`);
+      if (response.ok) {
+        const data = await response.json();
+        const financialReports = (data.reports || []).map((report: any) => ({
+          ...report,
+          createdAt: new Date(report.dateCreated),
+          updatedAt: new Date(report.dateCreated),
+          submittedAt: report.dateReviewed ? new Date(report.dateReviewed) : undefined,
+          reviewedAt: report.dateReviewed ? new Date(report.dateReviewed) : undefined,
+        }));
+        setReports(financialReports);
+      } else {
+        // Fallback to localStorage
+        const userReports = financialReportStorage.getReportsByAccountant(user!.id);
+        setReports(userReports);
+      }
+    } catch (error) {
+      console.error('Error loading reports:', error);
+      // Fallback to localStorage on error
+      const userReports = financialReportStorage.getReportsByAccountant(user!.id);
+      setReports(userReports);
+    }
   };
 
   const loadFinancialDataForReport = () => {
@@ -58,7 +80,7 @@ export default function AccountantFinancialReports() {
       const overview = getFinancialOverview(formData.academicSession, formData.term);
       const expenditures = expenditureStorage.getRequestsBySessionAndTerm(formData.academicSession, formData.term);
       const approvedExpenditures = expenditures.filter(e => e.status === 'approved' || e.status === 'completed');
-      const totalExpenditures = approvedExpenditures.reduce((sum, e) => sum + e.amount, 0);
+      const totalExpenditures = approvedExpenditures.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
       
       setFinancialData({
         ...overview,
@@ -133,28 +155,88 @@ ${financialData.netBalance >= 0 ?
 *Report generated on ${new Date().toLocaleDateString()} by ${user?.firstName} ${user?.lastName}*`;
   };
 
-  const handleCreateReport = () => {
+  const handleCreateReport = async () => {
     if (!formData.title.trim() || !formData.content.trim()) {
       alert('Please fill in all required fields');
       return;
     }
 
-    const newReport = financialReportStorage.createReport({
-      ...formData,
-      createdBy: user!.id,
-      createdByName: `${user!.firstName} ${user!.lastName}`,
-      status: 'draft',
-      totalRevenue: financialData?.totalRevenue || 0,
-      totalExpenditures: financialData?.totalExpenditures || 0,
-      netBalance: financialData?.netBalance || 0,
-      paymentCount: financialData?.totalPayments || 0,
-      expenditureCount: financialData?.expenditureCount || 0,
-    });
+    try {
+      // First try to save via API for persistence
+      const reportData = {
+        title: formData.title,
+        content: formData.content,
+        term: formData.term,
+        academicSession: formData.academicSession,
+        reportType: 'financial',
+        createdBy: user!.id,
+        createdByName: `${user!.firstName} ${user!.lastName}`,
+        createdByRole: 'accountant',
+        totalRevenue: financialData?.totalRevenue || 0,
+        totalExpenditures: financialData?.totalExpenditures || 0,
+        netBalance: financialData?.netBalance || 0,
+        paymentCount: financialData?.totalPayments || 0,
+        expenditureCount: financialData?.expenditureCount || 0,
+      };
 
-    setReports(prev => [newReport, ...prev]);
-    resetForm();
-    setShowCreateForm(false);
-    alert('Financial report created successfully!');
+      const response = await fetch('/api/reports', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(reportData),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const newReport = {
+          ...data.report,
+          createdAt: new Date(data.report.dateCreated),
+          updatedAt: new Date(data.report.dateCreated),
+          status: 'draft',
+        };
+        
+        // Also save to localStorage for immediate access
+        financialReportStorage.createReport({
+          ...formData,
+          createdBy: user!.id,
+          createdByName: `${user!.firstName} ${user!.lastName}`,
+          status: 'draft',
+          totalRevenue: financialData?.totalRevenue || 0,
+          totalExpenditures: financialData?.totalExpenditures || 0,
+          netBalance: financialData?.netBalance || 0,
+          paymentCount: financialData?.totalPayments || 0,
+          expenditureCount: financialData?.expenditureCount || 0,
+        });
+        
+        setReports(prev => [newReport, ...prev]);
+        resetForm();
+        setShowCreateForm(false);
+        alert('Financial report created successfully!');
+      } else {
+        throw new Error('Failed to save to API');
+      }
+    } catch (error) {
+      console.error('Error creating financial report:', error);
+      
+      // Fallback to localStorage only
+      const newReport = financialReportStorage.createReport({
+        ...formData,
+        createdBy: user!.id,
+        createdByName: `${user!.firstName} ${user!.lastName}`,
+        status: 'draft',
+        totalRevenue: financialData?.totalRevenue || 0,
+        totalExpenditures: financialData?.totalExpenditures || 0,
+        netBalance: financialData?.netBalance || 0,
+        paymentCount: financialData?.totalPayments || 0,
+        expenditureCount: financialData?.expenditureCount || 0,
+      });
+
+      setReports(prev => [newReport, ...prev]);
+      resetForm();
+      setShowCreateForm(false);
+      alert('Financial report created successfully (saved locally)!');
+    }
   };
 
   const handleUpdateReport = () => {
@@ -181,11 +263,47 @@ ${financialData.netBalance >= 0 ?
     }
   };
 
-  const handleSubmitReport = (reportId: string) => {
-    const updated = financialReportStorage.submitReport(reportId);
-    if (updated) {
-      setReports(prev => prev.map(r => r.id === updated.id ? updated : r));
-      alert('Financial report submitted for admin review successfully!');
+  const handleSubmitReport = async (reportId: string) => {
+    try {
+      // First try to update via API
+      const response = await fetch(`/api/reports?id=${reportId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          status: 'submitted',
+          approvalStatus: 'pending',
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const updatedReport = {
+          ...data.report,
+          createdAt: new Date(data.report.dateCreated),
+          updatedAt: new Date(data.report.dateCreated),
+          submittedAt: new Date(),
+          status: 'submitted',
+        };
+        
+        // Update localStorage as well
+        financialReportStorage.submitReport(reportId);
+        
+        setReports(prev => prev.map(r => r.id === reportId ? updatedReport : r));
+        alert('Financial report submitted for admin review successfully!');
+      } else {
+        throw new Error('Failed to update via API');
+      }
+    } catch (error) {
+      console.error('Error submitting report via API:', error);
+      
+      // Fallback to localStorage only
+      const updated = financialReportStorage.submitReport(reportId);
+      if (updated) {
+        setReports(prev => prev.map(r => r.id === updated.id ? updated : r));
+        alert('Financial report submitted for admin review successfully (saved locally)!');
+      }
     }
   };
 

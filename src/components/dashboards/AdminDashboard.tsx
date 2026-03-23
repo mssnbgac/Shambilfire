@@ -14,10 +14,11 @@ import {
   CogIcon,
   DocumentTextIcon,
   ClockIcon,
-  InformationCircleIcon
+  InformationCircleIcon,
+  UsersIcon
 } from '@heroicons/react/24/outline';
-import { collection, getDocs, query, where } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { NIGERIAN_SUBJECTS } from '@/types';
+import { getClasses } from '@/lib/classStorage';
 
 interface DashboardStats {
   totalStudents: number;
@@ -45,27 +46,27 @@ export default function AdminDashboard() {
 
   const fetchDashboardData = async () => {
     try {
-      // Fetch students count
-      const studentsQuery = query(collection(db, 'users'), where('role', '==', 'student'));
-      const studentsSnapshot = await getDocs(studentsQuery);
-      
-      // Fetch teachers count
-      const teachersQuery = query(collection(db, 'users'), where('role', '==', 'teacher'));
-      const teachersSnapshot = await getDocs(teachersQuery);
-      
-      // Fetch classes count
-      const classesSnapshot = await getDocs(collection(db, 'classes'));
-      
-      // Fetch subjects count
-      const subjectsSnapshot = await getDocs(collection(db, 'subjects'));
+      // Fetch users from API
+      const res = await fetch('/api/users');
+      let students = 0;
+      let teachers = 0;
+      if (res.ok) {
+        const data = await res.json();
+        const users: any[] = data.users || [];
+        students = users.filter((u) => u.role === 'student').length;
+        teachers = users.filter((u) => u.role === 'teacher').length;
+      }
+
+      // Classes from localStorage
+      const classes = getClasses();
 
       setStats({
-        totalStudents: studentsSnapshot.size,
-        totalTeachers: teachersSnapshot.size,
-        totalClasses: classesSnapshot.size,
-        totalSubjects: subjectsSnapshot.size,
-        pendingFees: 0, // This would be calculated from fee records
-        recentActivities: [] // This would be fetched from activity logs
+        totalStudents: students,
+        totalTeachers: teachers,
+        totalClasses: classes.length,
+        totalSubjects: NIGERIAN_SUBJECTS.length,
+        pendingFees: 0,
+        recentActivities: []
       });
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
@@ -177,6 +178,67 @@ export default function AdminDashboard() {
         ))}
       </div>
 
+      {/* Report Review Section */}
+      <div className="bg-white/80 backdrop-blur-xl shadow-2xl rounded-2xl border border-white/20 overflow-hidden">
+        <div className="bg-gradient-to-r from-orange-500 to-red-600 px-8 py-6">
+          <h3 className="text-2xl font-bold text-white flex items-center">
+            <DocumentTextIcon className="h-6 w-6 mr-3" />
+            User Reports & Review Center
+          </h3>
+        </div>
+        <div className="p-8">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            <a href="/admin/report-review" className="group relative bg-white/50 p-8 focus-within:ring-2 focus-within:ring-inset focus-within:ring-orange-500 rounded-2xl border border-gray-200/50 hover:border-orange-300/50 transition-all duration-300 hover:shadow-xl transform hover:-translate-y-1">
+              <div className="mb-6">
+                <span className="rounded-2xl inline-flex p-4 bg-gradient-to-br from-orange-500 to-orange-600 text-white shadow-lg group-hover:shadow-xl group-hover:scale-110 transition-all duration-300">
+                  <ClockIcon className="h-8 w-8" />
+                </span>
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-gray-900 group-hover:text-orange-600 transition-colors duration-300">
+                  Review Reports
+                </h3>
+                <p className="mt-2 text-gray-600 group-hover:text-gray-700 transition-colors duration-300">
+                  Review and approve reports from users
+                </p>
+              </div>
+            </a>
+
+            <a href="/user-reports" className="group relative bg-white/50 p-8 focus-within:ring-2 focus-within:ring-inset focus-within:ring-blue-500 rounded-2xl border border-gray-200/50 hover:border-blue-300/50 transition-all duration-300 hover:shadow-xl transform hover:-translate-y-1">
+              <div className="mb-6">
+                <span className="rounded-2xl inline-flex p-4 bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg group-hover:shadow-xl group-hover:scale-110 transition-all duration-300">
+                  <DocumentTextIcon className="h-8 w-8" />
+                </span>
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors duration-300">
+                  My Reports
+                </h3>
+                <p className="mt-2 text-gray-600 group-hover:text-gray-700 transition-colors duration-300">
+                  Create and manage your reports
+                </p>
+              </div>
+            </a>
+
+            <div className="group relative bg-white/50 p-8 rounded-2xl border border-gray-200/50">
+              <div className="mb-6">
+                <span className="rounded-2xl inline-flex p-4 bg-gradient-to-br from-green-500 to-green-600 text-white shadow-lg">
+                  <InformationCircleIcon className="h-8 w-8" />
+                </span>
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">
+                  Report Types
+                </h3>
+                <p className="mt-2 text-gray-600 text-sm">
+                  Academic • Financial • Disciplinary • Maintenance • Incidents • Complaints • Suggestions
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Quick Actions */}
       <div className="bg-white/80 backdrop-blur-xl shadow-2xl rounded-2xl border border-white/20 overflow-hidden">
         <div className="bg-gradient-to-r from-blue-500 to-indigo-600 px-8 py-6">
@@ -186,7 +248,7 @@ export default function AdminDashboard() {
           </h3>
         </div>
         <div className="p-8">
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
             <a href="/students/new" className="group relative bg-white/50 p-8 focus-within:ring-2 focus-within:ring-inset focus-within:ring-blue-500 rounded-2xl border border-gray-200/50 hover:border-blue-300/50 transition-all duration-300 hover:shadow-xl transform hover:-translate-y-1">
               <div className="mb-6">
                 <span className="rounded-2xl inline-flex p-4 bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg group-hover:shadow-xl group-hover:scale-110 transition-all duration-300">
@@ -236,6 +298,23 @@ export default function AdminDashboard() {
                 </p>
               </div>
               <div className="absolute top-0 right-0 -mt-4 -mr-4 w-16 h-16 bg-gradient-to-br from-purple-100/50 to-transparent rounded-full"></div>
+            </a>
+
+            <a href="/admin/user-management" className="group relative bg-white/50 p-8 focus-within:ring-2 focus-within:ring-inset focus-within:ring-red-500 rounded-2xl border border-gray-200/50 hover:border-red-300/50 transition-all duration-300 hover:shadow-xl transform hover:-translate-y-1">
+              <div className="mb-6">
+                <span className="rounded-2xl inline-flex p-4 bg-gradient-to-br from-red-500 to-red-600 text-white shadow-lg group-hover:shadow-xl group-hover:scale-110 transition-all duration-300">
+                  <UsersIcon className="h-8 w-8" />
+                </span>
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-gray-900 group-hover:text-red-600 transition-colors duration-300">
+                  Manage Users
+                </h3>
+                <p className="mt-3 text-gray-600 group-hover:text-gray-700 transition-colors duration-300">
+                  View and manage all system users. Delete inactive accounts as needed.
+                </p>
+              </div>
+              <div className="absolute top-0 right-0 -mt-4 -mr-4 w-16 h-16 bg-gradient-to-br from-red-100/50 to-transparent rounded-full"></div>
             </a>
           </div>
         </div>

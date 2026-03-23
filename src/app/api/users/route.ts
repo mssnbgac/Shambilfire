@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
+import fs from 'fs';
+import path from 'path';
 
-// Simple in-memory storage for demo purposes
-// In production, this would connect to a database
-let users: any[] = [
+// Persistent file-based storage for users
+const USERS_FILE = path.join(process.cwd(), 'data', 'users.json');
+
+// Default users that should always exist
+const DEFAULT_USERS = [
   {
     id: 'admin-1',
     email: 'admin@shambil.edu.ng',
@@ -79,9 +83,59 @@ let users: any[] = [
   }
 ];
 
+// Ensure data directory exists
+function ensureDataDirectory() {
+  const dataDir = path.dirname(USERS_FILE);
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+}
+
+// Load users from persistent storage
+function loadUsers(): any[] {
+  try {
+    ensureDataDirectory();
+    
+    if (fs.existsSync(USERS_FILE)) {
+      const data = fs.readFileSync(USERS_FILE, 'utf8');
+      const users = JSON.parse(data);
+      
+      // Ensure default users exist
+      const existingEmails = new Set(users.map((u: any) => u.email.toLowerCase()));
+      const missingDefaults = DEFAULT_USERS.filter(u => !existingEmails.has(u.email.toLowerCase()));
+      
+      if (missingDefaults.length > 0) {
+        const updatedUsers = [...users, ...missingDefaults];
+        saveUsers(updatedUsers);
+        return updatedUsers;
+      }
+      
+      return users;
+    } else {
+      // First time - create file with default users
+      saveUsers(DEFAULT_USERS);
+      return DEFAULT_USERS;
+    }
+  } catch (error) {
+    console.error('Error loading users:', error);
+    return DEFAULT_USERS;
+  }
+}
+
+// Save users to persistent storage
+function saveUsers(users: any[]): void {
+  try {
+    ensureDataDirectory();
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+  } catch (error) {
+    console.error('Error saving users:', error);
+  }
+}
+
 // GET - Retrieve all users or find specific user
 export async function GET(request: NextRequest) {
   try {
+    const users = loadUsers();
     const { searchParams } = new URL(request.url);
     const email = searchParams.get('email');
     const password = searchParams.get('password');
@@ -94,14 +148,14 @@ export async function GET(request: NextRequest) {
       );
       
       if (user) {
-        const { password: _, ...userWithoutPassword } = user;
-        return NextResponse.json({ user: userWithoutPassword });
+        // For login, return user with password for session management
+        return NextResponse.json({ user });
       } else {
         return NextResponse.json({ error: 'User not found' }, { status: 404 });
       }
     }
     
-    // Return all users (without passwords)
+    // Return all users (without passwords for security)
     const usersWithoutPasswords = users.map(({ password, ...user }) => user);
     return NextResponse.json({ users: usersWithoutPasswords });
   } catch (error) {
@@ -113,6 +167,7 @@ export async function GET(request: NextRequest) {
 // POST - Create new user
 export async function POST(request: NextRequest) {
   try {
+    const users = loadUsers();
     const userData = await request.json();
     
     // Check if email already exists
@@ -134,6 +189,7 @@ export async function POST(request: NextRequest) {
     };
     
     users.push(newUser);
+    saveUsers(users);
     
     // Return user without password
     const { password: _, ...userWithoutPassword } = newUser;
@@ -147,6 +203,7 @@ export async function POST(request: NextRequest) {
 // PUT - Update existing user
 export async function PUT(request: NextRequest) {
   try {
+    const users = loadUsers();
     const { searchParams } = new URL(request.url);
     const email = searchParams.get('email');
     const updateData = await request.json();
@@ -168,11 +225,47 @@ export async function PUT(request: NextRequest) {
       updatedAt: new Date().toISOString()
     };
     
+    saveUsers(users);
+    
     // Return updated user without password
     const { password: _, ...userWithoutPassword } = users[userIndex];
     return NextResponse.json({ user: userWithoutPassword });
   } catch (error) {
     console.error('PUT /api/users error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+// DELETE - Delete user (admin only)
+export async function DELETE(request: NextRequest) {
+  try {
+    const users = loadUsers();
+    const { searchParams } = new URL(request.url);
+    const email = searchParams.get('email');
+    
+    if (!email) {
+      return NextResponse.json({ error: 'Email parameter required' }, { status: 400 });
+    }
+    
+    const userIndex = users.findIndex(u => u.email.toLowerCase() === email.toLowerCase());
+    
+    if (userIndex === -1) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+    
+    // Don't allow deletion of default admin
+    if (users[userIndex].id === 'admin-1') {
+      return NextResponse.json({ error: 'Cannot delete default admin user' }, { status: 403 });
+    }
+    
+    // Remove user
+    const deletedUser = users.splice(userIndex, 1)[0];
+    saveUsers(users);
+    
+    const { password: _, ...userWithoutPassword } = deletedUser;
+    return NextResponse.json({ user: userWithoutPassword, message: 'User deleted successfully' });
+  } catch (error) {
+    console.error('DELETE /api/users error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

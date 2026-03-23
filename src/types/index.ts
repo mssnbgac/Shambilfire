@@ -1,6 +1,20 @@
 // User Types
 export type UserRole = 'admin' | 'teacher' | 'student' | 'parent' | 'accountant' | 'exam_officer';
 
+export type TeacherOffice = 
+  | 'none'
+  | 'exam_officer'
+  | 'accountant'
+  | 'labour_master'
+  | 'senior_master_admin'
+  | 'senior_master_academic'
+  | 'discipline_master'
+  | 'house_master'
+  | 'form_master'
+  | 'sports_master'
+  | 'library_master'
+  | 'lab_technician';
+
 export interface User {
   id: string;
   email: string;
@@ -13,6 +27,7 @@ export interface User {
   dateOfBirth?: string;
   createdAt: Date;
   updatedAt: Date;
+  office?: TeacherOffice; // Administrative office for teachers
 }
 
 // Student Types

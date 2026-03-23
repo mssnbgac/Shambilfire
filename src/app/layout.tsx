@@ -4,6 +4,7 @@ import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ContentProvider } from "@/contexts/ContentContext";
 import { Toaster } from "react-hot-toast";
+import DataMigrationInitializer from "@/components/DataMigrationInitializer";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -34,6 +35,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <DataMigrationInitializer />
         <AuthProvider>
           <ContentProvider>
             {children}

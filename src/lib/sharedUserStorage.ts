@@ -5,17 +5,34 @@ import { CreatedUser } from './demoUsers';
 const STORAGE_KEY = 'shambil_shared_users';
 
 // In production, this would connect to a database
-// For now, we'll use a combination of localStorage and a shared state
+// For now, we'll use a combination of localStorage and API
 
 interface SharedUserData {
   users: CreatedUser[];
   lastUpdated: string;
 }
 
-// Get users from shared storage (localStorage for now, but can be extended to API)
+// Get users from shared storage (API first, then localStorage fallback)
 export const getSharedUsers = async (): Promise<CreatedUser[]> => {
   try {
-    // In development, use localStorage
+    // Try API first
+    try {
+      const response = await fetch('/api/users');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.users && Array.isArray(data.users)) {
+          return data.users.map((user: any) => ({
+            ...user,
+            createdAt: new Date(user.createdAt),
+            updatedAt: new Date(user.updatedAt)
+          }));
+        }
+      }
+    } catch (apiError) {
+      console.log('API not available, using localStorage fallback');
+    }
+    
+    // Fallback to localStorage
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
@@ -36,19 +53,19 @@ export const getSharedUsers = async (): Promise<CreatedUser[]> => {
   }
 };
 
-// Save users to shared storage
+// Save users to shared storage (API first, then localStorage)
 export const saveSharedUsers = async (users: CreatedUser[]): Promise<boolean> => {
   try {
-    const data: SharedUserData = {
-      users: users.map(user => ({
-        ...user,
-        createdAt: user.createdAt.toISOString(),
-        updatedAt: user.updatedAt.toISOString()
-      })) as any,
-      lastUpdated: new Date().toISOString()
-    };
-    
+    // Save to localStorage for immediate access
     if (typeof window !== 'undefined') {
+      const data: SharedUserData = {
+        users: users.map(user => ({
+          ...user,
+          createdAt: user.createdAt.toISOString(),
+          updatedAt: user.updatedAt.toISOString()
+        })) as any,
+        lastUpdated: new Date().toISOString()
+      };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     }
     
@@ -59,9 +76,36 @@ export const saveSharedUsers = async (users: CreatedUser[]): Promise<boolean> =>
   }
 };
 
-// Add a new user to shared storage
+// Add a new user to shared storage (API first)
 export const addSharedUser = async (user: CreatedUser): Promise<boolean> => {
   try {
+    // Try API first
+    try {
+      const response = await fetch('/api/users', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(user),
+      });
+      
+      if (response.ok) {
+        // Also update localStorage for immediate access
+        const existingUsers = await getSharedUsers();
+        const updatedUsers = [...existingUsers.filter(u => u.id !== user.id), user];
+        await saveSharedUsers(updatedUsers);
+        return true;
+      } else {
+        const errorData = await response.json();
+        if (errorData.error === 'Email already exists') {
+          return false;
+        }
+      }
+    } catch (apiError) {
+      console.log('API not available, using localStorage fallback');
+    }
+    
+    // Fallback to localStorage
     const existingUsers = await getSharedUsers();
     
     // Check if email already exists
@@ -81,14 +125,31 @@ export const addSharedUser = async (user: CreatedUser): Promise<boolean> => {
   }
 };
 
-// Find user in shared storage
+// Find user in shared storage (API first)
 export const findSharedUser = async (email: string, password: string): Promise<CreatedUser | null> => {
   try {
-    const users = await getSharedUsers();
-    
     const normalizedEmail = email.toLowerCase().trim();
     const normalizedPassword = password.trim();
     
+    // Try API first
+    try {
+      const response = await fetch(`/api/users?email=${encodeURIComponent(normalizedEmail)}&password=${encodeURIComponent(normalizedPassword)}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.user) {
+          return {
+            ...data.user,
+            createdAt: new Date(data.user.createdAt),
+            updatedAt: new Date(data.user.updatedAt)
+          };
+        }
+      }
+    } catch (apiError) {
+      console.log('API not available, checking localStorage');
+    }
+    
+    // Fallback to localStorage
+    const users = await getSharedUsers();
     return users.find(u => 
       u.email.toLowerCase().trim() === normalizedEmail && 
       u.password.trim() === normalizedPassword
@@ -208,13 +269,36 @@ export const syncLocalToShared = async (): Promise<void> => {
         updatedAt: new Date(user.updatedAt)
       }));
       
-      // Save to new shared format
-      await saveSharedUsers(users);
+      // Save each user via API
+      for (const user of users) {
+        await addSharedUser(user);
+      }
       
       // Remove old format
       localStorage.removeItem('createdUsers');
       
-      console.log('Migrated', users.length, 'users to shared storage');
+      console.log('Migrated', users.length, 'users to persistent storage');
+    }
+    
+    // Also migrate from 'created_users' key
+    const createdUsers = localStorage.getItem('created_users');
+    if (createdUsers) {
+      const parsed = JSON.parse(createdUsers);
+      const users: CreatedUser[] = parsed.map((user: any) => ({
+        ...user,
+        createdAt: new Date(user.createdAt),
+        updatedAt: new Date(user.updatedAt)
+      }));
+      
+      // Save each user via API
+      for (const user of users) {
+        await addSharedUser(user);
+      }
+      
+      // Remove old format
+      localStorage.removeItem('created_users');
+      
+      console.log('Migrated', users.length, 'users from created_users to persistent storage');
     }
   } catch (error) {
     console.error('Error syncing local to shared:', error);

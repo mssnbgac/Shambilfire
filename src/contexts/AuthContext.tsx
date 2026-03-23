@@ -114,15 +114,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await syncLocalToShared();
         
         const storedUser = localStorage.getItem('demoUser');
+        console.log('Stored user in localStorage:', storedUser);
+        
         if (storedUser) {
           try {
             const userData = JSON.parse(storedUser);
+            console.log('Parsed stored user data:', userData);
             setUser(userData);
             setFirebaseUser({ uid: userData.id });
           } catch (error) {
             console.error('Error parsing stored user:', error);
             localStorage.removeItem('demoUser');
           }
+        } else {
+          console.log('No stored user found in localStorage');
         }
         setLoading(false);
       } else {
@@ -160,23 +165,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (response.ok) {
               const data = await response.json();
               if (data.user) {
-                console.log('API user found:', data.user.email);
-                demoUser = data.user;
+                console.log('API user found:', data.user.email, 'Role:', data.user.role);
+                demoUser = {
+                  ...data.user,
+                  createdAt: new Date(data.user.createdAt),
+                  updatedAt: new Date(data.user.updatedAt)
+                };
               }
+            } else {
+              console.log('API response not ok:', response.status);
             }
           } catch (apiError) {
-            console.log('API not available, checking local storage...');
+            console.log('API error:', apiError);
           }
           
           // Fallback to local storage if API fails
           if (!demoUser) {
             console.log('Checking local storage for created users...');
-            const createdUser = findCreatedUser(normalizedEmail, normalizedPassword);
-            if (createdUser) {
-              console.log('Local user found:', createdUser.email);
-              demoUser = createdUser;
-            } else {
-              console.log('No created user found');
+            try {
+              const createdUser = await findCreatedUser(normalizedEmail, normalizedPassword);
+              if (createdUser) {
+                console.log('Local user found:', createdUser.email, 'Role:', createdUser.role);
+                demoUser = createdUser;
+              } else {
+                console.log('No created user found in localStorage');
+              }
+            } catch (localError) {
+              console.log('Local storage error:', localError);
+            }
+          }
+          
+          // Also check shared storage
+          if (!demoUser) {
+            console.log('Checking shared storage for created users...');
+            try {
+              const sharedUser = await findSharedUser(normalizedEmail, normalizedPassword);
+              if (sharedUser) {
+                console.log('Shared user found:', sharedUser.email, 'Role:', sharedUser.role);
+                demoUser = sharedUser;
+              } else {
+                console.log('No shared user found');
+              }
+            } catch (sharedError) {
+              console.log('Shared storage error:', sharedError);
             }
           }
         }
@@ -186,8 +217,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           throw new Error('Invalid email or password. Please check your credentials and try again.');
         }
         
-        console.log('Login successful for:', demoUser.email);
-        const { password: _, ...userWithoutPassword } = demoUser;
+        console.log('Login successful for:', demoUser.email, 'with role:', demoUser.role);
+        
+        // Ensure the user object has the correct structure
+        const userForSession = {
+          ...demoUser,
+          createdAt: demoUser.createdAt instanceof Date ? demoUser.createdAt : new Date(demoUser.createdAt),
+          updatedAt: demoUser.updatedAt instanceof Date ? demoUser.updatedAt : new Date(demoUser.updatedAt)
+        };
+        
+        // Remove password from the user object for security (except for demo mode)
+        const { password: _, ...userWithoutPassword } = userForSession;
+        
+        console.log('Setting user in context:', userWithoutPassword);
         setUser(userWithoutPassword);
         setFirebaseUser({ uid: demoUser.id });
         localStorage.setItem('demoUser', JSON.stringify(userWithoutPassword));

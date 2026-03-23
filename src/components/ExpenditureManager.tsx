@@ -48,12 +48,36 @@ export default function ExpenditureManager() {
     }
   }, [user]);
 
-  const loadRequests = () => {
-    const userRequests = expenditureStorage.getRequestsByUser(user!.id);
-    setRequests(userRequests);
+  const loadRequests = async () => {
+    if (!user) return;
+    
+    try {
+      // Try API first
+      const response = await fetch(`/api/expenditures?userId=${user.id}`);
+      if (response.ok) {
+        const data = await response.json();
+        const userRequests = (data.expenditures || []).map((req: any) => ({
+          ...req,
+          requestedAt: new Date(req.requestedAt),
+          approvedAt: req.approvedAt ? new Date(req.approvedAt) : undefined,
+          completedAt: req.completedAt ? new Date(req.completedAt) : undefined,
+          updatedAt: new Date(req.updatedAt),
+        }));
+        setRequests(userRequests);
+      } else {
+        // Fallback to localStorage
+        const userRequests = expenditureStorage.getRequestsByUser(user.id);
+        setRequests(userRequests);
+      }
+    } catch (error) {
+      console.error('Error loading requests:', error);
+      // Fallback to localStorage
+      const userRequests = expenditureStorage.getRequestsByUser(user.id);
+      setRequests(userRequests);
+    }
   };
 
-  const handleCreateRequest = () => {
+  const handleCreateRequest = async () => {
     if (!formData.title.trim() || !formData.description.trim() || !formData.amount) {
       alert('Please fill in all required fields');
       return;
@@ -65,17 +89,57 @@ export default function ExpenditureManager() {
       return;
     }
 
-    const newRequest = expenditureStorage.createRequest({
-      ...formData,
-      amount,
-      requestedBy: user!.id,
-      requestedByName: `${user!.firstName} ${user!.lastName}`,
-    });
+    try {
+      // First try to save via API for persistence
+      const requestData = {
+        ...formData,
+        amount,
+        requestedBy: user!.id,
+        requestedByName: `${user!.firstName} ${user!.lastName}`,
+      };
 
-    setRequests(prev => [newRequest, ...prev]);
-    resetForm();
-    setShowCreateForm(false);
-    alert('Expenditure request created successfully!');
+      const response = await fetch('/api/expenditures', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestData),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const newRequest = {
+          ...data.expenditure,
+          requestedAt: new Date(data.expenditure.requestedAt),
+          updatedAt: new Date(data.expenditure.updatedAt),
+        };
+        
+        // Also save to localStorage for immediate access
+        expenditureStorage.createRequest(requestData);
+        
+        setRequests(prev => [newRequest, ...prev]);
+        resetForm();
+        setShowCreateForm(false);
+        alert('Expenditure request created successfully!');
+      } else {
+        throw new Error('Failed to save to API');
+      }
+    } catch (error) {
+      console.error('Error creating expenditure request:', error);
+      
+      // Fallback to localStorage only
+      const newRequest = expenditureStorage.createRequest({
+        ...formData,
+        amount,
+        requestedBy: user!.id,
+        requestedByName: `${user!.firstName} ${user!.lastName}`,
+      });
+
+      setRequests(prev => [newRequest, ...prev]);
+      resetForm();
+      setShowCreateForm(false);
+      alert('Expenditure request created successfully (saved locally)!');
+    }
   };
 
   const handleUpdateRequest = () => {
@@ -186,11 +250,11 @@ export default function ExpenditureManager() {
     }).format(amount);
   };
 
-  if (!user || user.role !== 'accountant') {
+  if (!user || !['admin', 'accountant', 'teacher'].includes(user.role)) {
     return (
       <div className="text-center py-12">
         <h2 className="text-xl font-semibold text-gray-900">Access Denied</h2>
-        <p className="text-gray-600">Only accountants can create expenditure requests.</p>
+        <p className="text-gray-600">Only accountants and staff can create expenditure requests.</p>
       </div>
     );
   }

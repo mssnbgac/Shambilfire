@@ -7,20 +7,19 @@ import {
   XCircleIcon,
   ClockIcon,
   UserGroupIcon,
-  ChartBarIcon
+  ChartBarIcon,
+  MagnifyingGlassIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '@/contexts/AuthContext';
-
-interface AttendanceRecord {
-  id: string;
-  studentId: string;
-  studentName: string;
-  date: string;
-  status: 'present' | 'absent' | 'late' | 'excused';
-  timeIn?: string;
-  timeOut?: string;
-  notes?: string;
-}
+import { searchStudents, getAllStudents, StudentSearchResult } from '@/lib/studentSearch';
+import { getClasses } from '@/lib/classStorage';
+import { 
+  saveAttendanceRecord, 
+  getAttendanceByDate, 
+  calculateAttendanceStats,
+  AttendanceRecord 
+} from '@/lib/attendanceStorage';
+import { searchUserByEmailUnified } from '@/lib/userManagement';
 
 interface AttendanceStats {
   totalDays: number;
@@ -42,74 +41,104 @@ export default function AttendanceTracker() {
     attendanceRate: 0
   });
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [availableStudents, setAvailableStudents] = useState<StudentSearchResult[]>([]);
+  const [teacherClasses, setTeacherClasses] = useState<string[]>([]);
+
+  useEffect(() => {
+    loadTeacherClasses();
+  }, [user]);
 
   useEffect(() => {
     loadAttendanceData();
-  }, [selectedDate, user]);
+  }, [selectedDate, teacherClasses]);
+
+  const loadTeacherClasses = () => {
+    if (user?.role === 'teacher' && user?.email) {
+      const teacherData = searchUserByEmailUnified(user.email);
+      if (teacherData && teacherData.classAssignments) {
+        setTeacherClasses(teacherData.classAssignments);
+      }
+    }
+  };
 
   const loadAttendanceData = () => {
-    // Demo attendance data
-    const demoRecords: AttendanceRecord[] = [
-      {
-        id: '1',
-        studentId: 'student-1',
-        studentName: 'John Doe',
-        date: selectedDate,
-        status: 'present',
-        timeIn: '08:15',
-        timeOut: '15:30'
-      },
-      {
-        id: '2',
-        studentId: 'student-2',
-        studentName: 'Jane Smith',
-        date: selectedDate,
-        status: 'late',
-        timeIn: '08:45',
-        timeOut: '15:30',
-        notes: 'Traffic delay'
-      },
-      {
-        id: '3',
-        studentId: 'student-3',
-        studentName: 'Mike Johnson',
-        date: selectedDate,
-        status: 'absent',
-        notes: 'Sick leave'
-      },
-      {
-        id: '4',
-        studentId: 'student-4',
-        studentName: 'Sarah Wilson',
-        date: selectedDate,
-        status: 'present',
-        timeIn: '08:10',
-        timeOut: '15:30'
-      },
-      {
-        id: '5',
-        studentId: 'student-5',
-        studentName: 'David Brown',
-        date: selectedDate,
-        status: 'excused',
-        notes: 'Medical appointment'
+    setLoading(true);
+    
+    // Get all students
+    let students = getAllStudents();
+    
+    // Filter by teacher's assigned classes if teacher
+    if (user?.role === 'teacher' && teacherClasses.length > 0) {
+      students = students.filter(student => 
+        teacherClasses.some(className => 
+          student.class.toLowerCase().includes(className.toLowerCase()) ||
+          className.toLowerCase().includes(student.class.toLowerCase())
+        )
+      );
+    }
+    
+    setAvailableStudents(students);
+    
+    // Load existing attendance records for selected date
+    const existingRecords = getAttendanceByDate(selectedDate);
+    
+    // Create attendance records for all students
+    const records: AttendanceRecord[] = students.map(student => {
+      const existing = existingRecords.find(r => r.studentId === student.id);
+      
+      if (existing) {
+        return existing;
       }
-    ];
+      
+      // Create placeholder record
+      return {
+        id: `temp-${student.id}`,
+        studentId: student.id,
+        studentName: `${student.firstName} ${student.lastName}`,
+        studentEmail: student.email,
+        admissionNumber: student.admissionNumber,
+        classId: student.class,
+        className: student.class,
+        date: selectedDate,
+        status: 'absent' as const,
+        markedBy: user?.id || '',
+        markedByName: user ? `${user.firstName} ${user.lastName}` : '',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+    });
 
-    setAttendanceRecords(demoRecords);
+    setAttendanceRecords(records);
 
-    // Calculate stats
-    const totalDays = 20; // Current month school days
-    const presentDays = 16;
-    const absentDays = 2;
-    const lateDays = 2;
-    const attendanceRate = (presentDays / totalDays) * 100;
+    // Calculate stats (for the month)
+    const monthStart = new Date(selectedDate);
+    monthStart.setDate(1);
+    const monthStartStr = monthStart.toISOString().split('T')[0];
+    
+    const totalDays = 20; // Approximate school days per month
+    let presentDays = 0;
+    let absentDays = 0;
+    let lateDays = 0;
+    
+    // Calculate from actual records
+    students.forEach(student => {
+      const studentStats = calculateAttendanceStats(student.id, monthStartStr, selectedDate);
+      presentDays += studentStats.presentDays;
+      absentDays += studentStats.absentDays;
+      lateDays += studentStats.lateDays;
+    });
+    
+    const avgPresent = students.length > 0 ? presentDays / students.length : 0;
+    const avgAbsent = students.length > 0 ? absentDays / students.length : 0;
+    const avgLate = students.length > 0 ? lateDays / students.length : 0;
+    const attendanceRate = totalDays > 0 ? (avgPresent / totalDays) * 100 : 0;
 
     setStats({
       totalDays,
-      presentDays,
-      absentDays,
-      lateDays,
+      presentDays: Math.round(avgPresent),
+      absentDays: Math.round(avgAbsent),
+      lateDays: Math.round(avgLate),
       attendanceRate
     });
 
@@ -117,13 +146,93 @@ export default function AttendanceTracker() {
   };
 
   const updateAttendance = (recordId: string, status: 'present' | 'absent' | 'late' | 'excused') => {
-    setAttendanceRecords(prev => 
-      prev.map(record => 
-        record.id === recordId 
-          ? { ...record, status, timeIn: status === 'present' || status === 'late' ? '08:15' : undefined }
-          : record
-      )
-    );
+    const record = attendanceRecords.find(r => r.id === recordId || r.studentId === recordId);
+    
+    if (!record) return;
+    
+    const timeIn = status === 'present' ? '08:15' : status === 'late' ? '08:45' : undefined;
+    
+    // Save to storage
+    try {
+      const savedRecord = saveAttendanceRecord({
+        studentId: record.studentId,
+        studentName: record.studentName,
+        studentEmail: record.studentEmail,
+        admissionNumber: record.admissionNumber,
+        classId: record.classId,
+        className: record.className,
+        date: selectedDate,
+        status,
+        timeIn,
+        timeOut: status === 'present' || status === 'late' ? '15:30' : undefined,
+        markedBy: user?.id || '',
+        markedByName: user ? `${user.firstName} ${user.lastName}` : ''
+      });
+      
+      // Update local state
+      setAttendanceRecords(prev => 
+        prev.map(r => 
+          r.studentId === record.studentId 
+            ? savedRecord
+            : r
+        )
+      );
+    } catch (error) {
+      console.error('Error saving attendance:', error);
+      alert('Failed to save attendance record');
+    }
+  };
+
+  const handleSearch = (term: string) => {
+    setSearchTerm(term);
+    
+    if (!term.trim()) {
+      loadAttendanceData();
+      return;
+    }
+    
+    // Search students by email or admission number
+    const searchResults = searchStudents(term);
+    
+    // Filter by teacher's classes if teacher
+    let filteredResults = searchResults;
+    if (user?.role === 'teacher' && teacherClasses.length > 0) {
+      filteredResults = searchResults.filter(student => 
+        teacherClasses.some(className => 
+          student.class.toLowerCase().includes(className.toLowerCase()) ||
+          className.toLowerCase().includes(student.class.toLowerCase())
+        )
+      );
+    }
+    
+    // Load existing attendance for these students
+    const existingRecords = getAttendanceByDate(selectedDate);
+    
+    const records: AttendanceRecord[] = filteredResults.map(student => {
+      const existing = existingRecords.find(r => r.studentId === student.id);
+      
+      if (existing) {
+        return existing;
+      }
+      
+      return {
+        id: `temp-${student.id}`,
+        studentId: student.id,
+        studentName: `${student.firstName} ${student.lastName}`,
+        studentEmail: student.email,
+        admissionNumber: student.admissionNumber,
+        classId: student.class,
+        className: student.class,
+        date: selectedDate,
+        status: 'absent' as const,
+        markedBy: user?.id || '',
+        markedByName: user ? `${user.firstName} ${user.lastName}` : '',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+    });
+    
+    setAttendanceRecords(records);
   };
 
   const getStatusIcon = (status: string) => {
@@ -184,6 +293,34 @@ export default function AttendanceTracker() {
           </div>
         </div>
       </div>
+
+      {/* Search Bar */}
+      {(user?.role === 'teacher' || user?.role === 'admin') && (
+        <div className="bg-white shadow rounded-lg p-4">
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <MagnifyingGlassIcon className="h-5 w-5 text-gray-400" />
+            </div>
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => handleSearch(e.target.value)}
+              placeholder="Search student by email or admission number..."
+              className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+            />
+          </div>
+          {teacherClasses.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              <span className="text-sm text-gray-600">Your classes:</span>
+              {teacherClasses.map((className, index) => (
+                <span key={index} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                  {className}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -271,6 +408,12 @@ export default function AttendanceTracker() {
                     Student
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Admission No.
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Class
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -291,7 +434,7 @@ export default function AttendanceTracker() {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {attendanceRecords.map((record) => (
-                  <tr key={record.id} className="hover:bg-gray-50">
+                  <tr key={record.studentId} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
                         <div className="flex-shrink-0 h-10 w-10">
@@ -303,9 +446,15 @@ export default function AttendanceTracker() {
                         </div>
                         <div className="ml-4">
                           <div className="text-sm font-medium text-gray-900">{record.studentName}</div>
-                          <div className="text-sm text-gray-500">ID: {record.studentId}</div>
+                          <div className="text-sm text-gray-500">{record.studentEmail}</div>
                         </div>
                       </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {record.admissionNumber}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {record.className}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
@@ -328,21 +477,21 @@ export default function AttendanceTracker() {
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex space-x-2">
                           <button
-                            onClick={() => updateAttendance(record.id, 'present')}
+                            onClick={() => updateAttendance(record.studentId, 'present')}
                             className="text-green-600 hover:text-green-900"
                             title="Mark Present"
                           >
                             <CheckCircleIcon className="h-4 w-4" />
                           </button>
                           <button
-                            onClick={() => updateAttendance(record.id, 'absent')}
+                            onClick={() => updateAttendance(record.studentId, 'absent')}
                             className="text-red-600 hover:text-red-900"
                             title="Mark Absent"
                           >
                             <XCircleIcon className="h-4 w-4" />
                           </button>
                           <button
-                            onClick={() => updateAttendance(record.id, 'late')}
+                            onClick={() => updateAttendance(record.studentId, 'late')}
                             className="text-yellow-600 hover:text-yellow-900"
                             title="Mark Late"
                           >

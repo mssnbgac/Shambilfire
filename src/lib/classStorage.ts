@@ -37,6 +37,11 @@ export const getClasses = (): SchoolClass[] => {
   return [];
 };
 
+export const getClassById = (classId: string): SchoolClass | null => {
+  const classes = getClasses();
+  return classes.find(cls => cls.id === classId) || null;
+};
+
 export const saveClass = (classData: Omit<SchoolClass, 'id' | 'createdAt' | 'updatedAt'>): SchoolClass => {
   const classes = getClasses();
   
@@ -110,11 +115,6 @@ export const deleteClass = (classId: string): boolean => {
     console.error('Error deleting class:', error);
     return false;
   }
-};
-
-export const getClassById = (classId: string): SchoolClass | null => {
-  const classes = getClasses();
-  return classes.find(cls => cls.id === classId) || null;
 };
 
 export const getClassesByAcademicYear = (academicYear: string): SchoolClass[] => {

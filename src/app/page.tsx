@@ -26,15 +26,28 @@ import {
 
 export default function Home() {
   const { user, loading } = useAuth();
-  const { getSectionByType, getActiveNewsEvents, sections, loading: contentLoading } = useContent();
+  const { getSectionByType, getActiveNewsEvents, loading: contentLoading } = useContent();
   const router = useRouter();
   const [activeTab, setActiveTab] = useState('News & Events');
   const [homepageContent, setHomepageContent] = useState<any>(null);
+  const [galleryImages, setGalleryImages] = useState<string[]>([]);
+  const [galleryVideos, setGalleryVideos] = useState<string[]>([]);
 
   useEffect(() => {
-    // Load homepage content from API
     loadHomepageContent();
+    loadGallery();
   }, []);
+
+  const loadGallery = async () => {
+    try {
+      const res = await fetch('/api/gallery');
+      if (res.ok) {
+        const data = await res.json();
+        setGalleryImages(data.images || []);
+        setGalleryVideos(data.videos || []);
+      }
+    } catch {}
+  };
 
   useEffect(() => {
     // Check if user explicitly wants to view homepage via query parameter
@@ -112,17 +125,6 @@ export default function Home() {
   const gallerySection = getSectionByType('gallery');
   const achievementsSection = getSectionByType('achievements');
   const activeNewsEvents = getActiveNewsEvents();
-
-  // Debug logging
-  console.log('Homepage: Gallery section:', gallerySection);
-  if (gallerySection?.images) {
-    console.log('Homepage: Gallery images:', gallerySection.images);
-    console.log('Homepage: Gallery images count:', gallerySection.images.length);
-    gallerySection.images.forEach((img, idx) => {
-      console.log(`Homepage: Image ${idx + 1}:`, img.substring(0, 100) + '...');
-      console.log(`Homepage: Image ${idx + 1} is data URL:`, img.startsWith('data:'));
-    });
-  }
 
   // Separate news and events
   const recentNews = activeNewsEvents.filter(item => item.type === 'news').slice(0, 3);
@@ -329,52 +331,50 @@ export default function Home() {
               </div>
               
               {/* Display admin-uploaded images if available */}
-              {gallerySection?.images && gallerySection.images.length > 0 && (
+              {galleryImages.length > 0 && (
                 <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-lg font-semibold text-gray-900">Photo Gallery</h3>
-                    <button
-                      onClick={() => {
-                        console.log('Debug: Gallery section:', gallerySection);
-                        console.log('Debug: Gallery images:', gallerySection.images);
-                        console.log('Debug: All sections:', sections);
-                      }}
-                      className="text-blue-600 hover:text-blue-800 text-sm"
-                    >
-                      Debug Gallery
-                    </button>
-                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Photo Gallery</h3>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {gallerySection.images.map((image, index) => (
+                    {galleryImages.map((image, index) => (
                       <div key={index} className="bg-gray-100 rounded-lg overflow-hidden">
                         <img 
                           src={image} 
                           alt={`Gallery image ${index + 1}`}
                           className="w-full h-48 object-cover"
-                          onLoad={() => {
-                            console.log(`Homepage: Image ${index + 1} loaded successfully`);
-                          }}
                           onError={(e) => {
-                            console.error(`Homepage: Image ${index + 1} failed to load:`, image.substring(0, 100) + '...');
-                            console.error(`Homepage: Image ${index + 1} error:`, e);
-                            // Hide broken images and show placeholder
                             e.currentTarget.style.display = 'none';
                             const placeholder = e.currentTarget.nextElementSibling as HTMLElement;
-                            if (placeholder) {
-                              placeholder.style.display = 'flex';
-                            }
+                            if (placeholder) placeholder.style.display = 'flex';
                           }}
                         />
                         <div 
-                          className="w-full h-48 bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center"
+                          className="w-full h-48 bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg items-center justify-center"
                           style={{ display: 'none' }}
                         >
                           <div className="text-center">
                             <PhotoIcon className="h-8 w-8 text-gray-400 mx-auto mb-2" />
                             <p className="text-sm text-gray-500">Image not available</p>
-                            <p className="text-xs text-gray-400 mt-1">Check console for details</p>
                           </div>
                         </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Display admin-uploaded videos if available */}
+              {galleryVideos.length > 0 && (
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Video Gallery</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {galleryVideos.map((video, index) => (
+                      <div key={index} className="bg-gray-100 rounded-lg overflow-hidden">
+                        <video
+                          src={video}
+                          controls
+                          className="w-full h-48 object-cover"
+                          onError={(e) => { (e.currentTarget as HTMLVideoElement).style.display = 'none'; }}
+                        />
                       </div>
                     ))}
                   </div>
@@ -547,16 +547,26 @@ export default function Home() {
               <div className="space-y-3">
                 {upcomingEvents.length > 0 ? (
                   upcomingEvents.map((event, index) => (
-                    <div key={index} className="flex items-start space-x-3 p-3 bg-blue-50 rounded-lg">
-                      <div className="flex-shrink-0">
-                        <div className="w-2 h-2 bg-blue-600 rounded-full mt-2"></div>
-                      </div>
-                      <div>
-                        <p className="font-medium text-gray-900">{event.title}</p>
-                        <p className="text-sm text-gray-600">{new Date(event.date).toLocaleDateString()}</p>
-                        {event.content && (
-                          <p className="text-sm text-gray-600 mt-1">{event.content}</p>
-                        )}
+                    <div key={index} className="p-3 bg-blue-50 rounded-lg">
+                      {event.image && (
+                        <img
+                          src={event.image}
+                          alt={event.title}
+                          className="w-full h-40 object-cover rounded-lg mb-3"
+                          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        />
+                      )}
+                      <div className="flex items-start space-x-3">
+                        <div className="flex-shrink-0">
+                          <div className="w-2 h-2 bg-blue-600 rounded-full mt-2"></div>
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">{event.title}</p>
+                          <p className="text-sm text-gray-600">{new Date(event.date).toLocaleDateString()}</p>
+                          {event.content && (
+                            <p className="text-sm text-gray-600 mt-1">{event.content}</p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))
@@ -577,16 +587,26 @@ export default function Home() {
               <div className="space-y-3">
                 {recentNews.length > 0 ? (
                   recentNews.map((news, index) => (
-                    <div key={index} className="flex items-start space-x-3 p-3 bg-green-50 rounded-lg">
-                      <div className="flex-shrink-0">
-                        <div className="w-2 h-2 bg-green-600 rounded-full mt-2"></div>
-                      </div>
-                      <div>
-                        <p className="font-medium text-gray-900">{news.title}</p>
-                        <p className="text-sm text-gray-600">{new Date(news.date).toLocaleDateString()}</p>
-                        {news.content && (
-                          <p className="text-sm text-gray-600 mt-1">{news.content}</p>
-                        )}
+                    <div key={index} className="p-3 bg-green-50 rounded-lg">
+                      {news.image && (
+                        <img
+                          src={news.image}
+                          alt={news.title}
+                          className="w-full h-40 object-cover rounded-lg mb-3"
+                          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        />
+                      )}
+                      <div className="flex items-start space-x-3">
+                        <div className="flex-shrink-0">
+                          <div className="w-2 h-2 bg-green-600 rounded-full mt-2"></div>
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">{news.title}</p>
+                          <p className="text-sm text-gray-600">{new Date(news.date).toLocaleDateString()}</p>
+                          {news.content && (
+                            <p className="text-sm text-gray-600 mt-1">{news.content}</p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))
@@ -603,22 +623,22 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-600 to-purple-700">
+    <div className="min-h-screen bg-gradient-to-br from-blue-600 to-purple-700 overflow-x-hidden">
       {/* Logged-in User Header */}
       {user && (
         <div className="bg-white/10 backdrop-blur-sm border-b border-white/20">
-          <div className="max-w-7xl mx-auto px-4 py-3">
-            <div className="flex items-center justify-between">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div className="flex items-center space-x-4">
                 <div className="text-white">
                   <p className="text-sm">Welcome back, <span className="font-semibold">{user.firstName} {user.lastName}</span></p>
                   <p className="text-xs text-blue-100 capitalize">Viewing as {user.role}</p>
                 </div>
               </div>
-              <div className="flex items-center space-x-3">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
                 <Link
                   href="/dashboard"
-                  className="inline-flex items-center px-4 py-2 bg-white/20 text-white rounded-lg font-medium hover:bg-white/30 transition-colors"
+                  className="inline-flex items-center px-4 py-2 bg-white/20 text-white rounded-lg font-medium hover:bg-white/30 transition-colors text-sm"
                 >
                   <span className="mr-2">📊</span>
                   Back to Dashboard
@@ -626,7 +646,7 @@ export default function Home() {
                 {user.role === 'admin' && (
                   <Link
                     href="/homepage-manager"
-                    className="inline-flex items-center px-4 py-2 bg-yellow-500 text-gray-900 rounded-lg font-medium hover:bg-yellow-400 transition-colors"
+                    className="inline-flex items-center px-4 py-2 bg-yellow-500 text-gray-900 rounded-lg font-medium hover:bg-yellow-400 transition-colors text-sm"
                   >
                     <span className="mr-2">⚙️</span>
                     Edit Homepage

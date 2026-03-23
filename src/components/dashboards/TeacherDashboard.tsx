@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { 
-  BookOpenIcon, 
-  AcademicCapIcon, 
-  ClipboardDocumentListIcon, 
+import { useState, useEffect } from 'react';
+import {
+  BookOpenIcon,
+  AcademicCapIcon,
+  ClipboardDocumentListIcon,
   ChatBubbleLeftRightIcon,
   CalendarIcon,
   ClockIcon,
@@ -13,534 +13,452 @@ import {
   EnvelopeIcon,
   MapPinIcon,
   BriefcaseIcon,
-  EyeIcon,
-  EyeSlashIcon,
-  BoltIcon
+  BoltIcon,
+  ChartBarIcon,
+  StarIcon,
+  ArrowTrendingUpIcon,
+  DocumentTextIcon,
+  SparklesIcon,
 } from '@heroicons/react/24/outline';
-import { collection, getDocs, query, where } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
+import { searchUserByEmailUnified, getAllUsersUnified } from '@/lib/userManagement';
 
-interface TeacherStats {
-  myClasses: number;
-  myStudents: number;
-  pendingGrades: number;
-  unreadMessages: number;
-  todayClasses: any[];
-  recentActivities: any[];
+interface TeacherProfile {
+  teacherId: string;
+  academicSession: string;
+  subjects: string[];
+  classes: string[];
+  qualifications: string;
+  experience: string;
+  employmentDate: string;
+  phoneNumber: string;
+  address: string;
+  dateOfBirth: string;
 }
+
+const SUBJECT_COLORS = [
+  'from-violet-500 to-purple-600',
+  'from-blue-500 to-indigo-600',
+  'from-emerald-500 to-teal-600',
+  'from-orange-500 to-amber-600',
+  'from-rose-500 to-pink-600',
+  'from-cyan-500 to-sky-600',
+  'from-lime-500 to-green-600',
+  'from-fuchsia-500 to-violet-600',
+];
+
+const CLASS_COLORS = [
+  'border-l-violet-500 bg-violet-50',
+  'border-l-blue-500 bg-blue-50',
+  'border-l-emerald-500 bg-emerald-50',
+  'border-l-orange-500 bg-orange-50',
+  'border-l-rose-500 bg-rose-50',
+  'border-l-cyan-500 bg-cyan-50',
+];
 
 export default function TeacherDashboard() {
   const { user } = useAuth();
-  const [stats, setStats] = useState<TeacherStats>({
-    myClasses: 0,
-    myStudents: 0,
-    pendingGrades: 0,
-    unreadMessages: 0,
-    todayClasses: [],
-    recentActivities: []
-  });
   const [loading, setLoading] = useState(true);
   const [showProfile, setShowProfile] = useState(false);
-
-  // Demo teacher data (in real app, this would come from the database)
-  const teacherProfile = {
-    teacherId: 'TCH001',
+  const [teacherProfile, setTeacherProfile] = useState<TeacherProfile>({
+    teacherId: '',
     academicSession: '2024/2025',
-    subjects: ['Mathematics', 'Further Mathematics', 'Physics'],
-    classes: ['JSS 2A', 'JSS 2B', 'SS 1Science', 'SS 3Science'],
-    qualifications: 'B.Sc Mathematics, M.Ed Educational Technology, PGDE',
-    experience: '8 years of teaching experience in secondary schools',
-    employmentDate: '2020-09-15',
-    phoneNumber: '+234 803 401 2480',
-    address: '45, Dan Masani Street, Birnin Gwari, Kaduna State',
-    dateOfBirth: '1985-03-15'
-  };
+    subjects: [],
+    classes: [],
+    qualifications: 'Not specified',
+    experience: 'Not specified',
+    employmentDate: '',
+    phoneNumber: '',
+    address: '',
+    dateOfBirth: '',
+  });
+
+  const today = new Date();
+  const dateStr = today.toLocaleDateString('en-US', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+  });
+
+  const initials = `${user?.firstName?.[0] ?? ''}${user?.lastName?.[0] ?? ''}`.toUpperCase();
 
   useEffect(() => {
-    if (user) {
-      fetchTeacherData();
-    }
+    if (user) fetchTeacherData();
   }, [user]);
 
   const fetchTeacherData = async () => {
     try {
-      // Fetch classes assigned to this teacher
-      const classesQuery = query(collection(db, 'classes'), where('teacherId', '==', user?.id));
-      const classesSnapshot = await getDocs(classesQuery);
-      
-      // Count total students in teacher's classes
-      let totalStudents = 0;
-      classesSnapshot.docs.forEach(doc => {
-        const classData = doc.data();
-        totalStudents += classData.students?.length || 0;
-      });
+      setLoading(true);
 
-      // Fetch pending grades (grades not yet submitted)
-      const gradesQuery = query(
-        collection(db, 'grades'), 
-        where('teacherId', '==', user?.id),
-        where('total', '==', 0) // Assuming 0 means not graded yet
-      );
-      const gradesSnapshot = await getDocs(gradesQuery);
+      // Try API first
+      try {
+        const res = await fetch(`/api/users?email=${encodeURIComponent(user?.email || '')}`);
+        if (res.ok) {
+          const data = await res.json();
+          const apiUser = data.users?.find((u: any) => u.email === user?.email && u.role === 'teacher');
+          if (apiUser) {
+            setTeacherProfile({
+              teacherId: apiUser.id,
+              academicSession: apiUser.academicSession || '2024/2025',
+              subjects: apiUser.subjects || [],
+              classes: apiUser.classes || [],
+              qualifications: apiUser.qualifications || 'Not specified',
+              experience: apiUser.experience || 'Not specified',
+              employmentDate: apiUser.employmentDate || '',
+              phoneNumber: apiUser.phoneNumber || '',
+              address: apiUser.address || '',
+              dateOfBirth: apiUser.dateOfBirth || '',
+            });
+            setLoading(false);
+            return;
+          }
+        }
+      } catch (_) {}
 
-      setStats({
-        myClasses: classesSnapshot.size,
-        myStudents: totalStudents,
-        pendingGrades: gradesSnapshot.size,
-        unreadMessages: 0, // This would be fetched from messages collection
-        todayClasses: [], // This would be fetched from timetable
-        recentActivities: []
-      });
-    } catch (error) {
-      console.error('Error fetching teacher data:', error);
+      // Fallback to localStorage
+      if (user?.email) {
+        const td = searchUserByEmailUnified(user.email);
+        if (td && td.role === 'teacher') {
+          setTeacherProfile({
+            teacherId: td.id,
+            academicSession: (td as any).academicSession || '2024/2025',
+            subjects: (td as any).subjects || [],
+            classes: (td as any).classes || [],
+            qualifications: (td as any).qualifications || 'Not specified',
+            experience: (td as any).experience || 'Not specified',
+            employmentDate: (td as any).employmentDate || '',
+            phoneNumber: td.phoneNumber || '',
+            address: td.address || '',
+            dateOfBirth: td.dateOfBirth || '',
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching teacher data:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  const statCards = [
-    {
-      name: 'My Classes',
-      value: stats.myClasses,
-      icon: BookOpenIcon,
-      color: 'bg-blue-500',
-      href: '/classes'
-    },
-    {
-      name: 'My Students',
-      value: stats.myStudents,
-      icon: AcademicCapIcon,
-      color: 'bg-green-500',
-      href: '/students'
-    },
-    {
-      name: 'Pending Grades',
-      value: stats.pendingGrades,
-      icon: ClipboardDocumentListIcon,
-      color: 'bg-yellow-500',
-      href: '/results'
-    },
-    {
-      name: 'Messages',
-      value: stats.unreadMessages,
-      icon: ChatBubbleLeftRightIcon,
-      color: 'bg-purple-500',
-      href: '/messages'
-    }
-  ];
-
-  const todaySchedule = [
-    { time: '8:00 AM', subject: 'Mathematics', class: 'JSS 2A', room: 'Room 101' },
-    { time: '10:00 AM', subject: 'Physics', class: 'SS 3B', room: 'Lab 1' },
-    { time: '12:00 PM', subject: 'Mathematics', class: 'SS 1A', room: 'Room 102' },
-    { time: '2:00 PM', subject: 'Further Mathematics', class: 'SS 3A', room: 'Room 103' },
-  ];
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="flex flex-col items-center gap-4">
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-indigo-200 border-t-indigo-600"></div>
+          <p className="text-gray-500 text-sm">Loading your dashboard...</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div className="relative overflow-hidden bg-gradient-to-r from-green-600 via-emerald-600 to-teal-600 rounded-2xl shadow-2xl">
-        <div className="absolute inset-0 bg-black/10"></div>
-        <div className="relative px-8 py-12">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between">
-            <div className="mb-6 md:mb-0">
-              <h1 className="text-4xl font-bold text-white mb-2">
-                Welcome back, {user?.firstName}! 👩‍🏫
-              </h1>
-              <p className="text-green-100 text-lg">
-                Here's your teaching overview and latest updates
-              </p>
+    <div className="space-y-8 pb-8">
+
+      {/* ── HERO HEADER ── */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-600 via-violet-600 to-purple-700 shadow-2xl">
+        {/* decorative blobs */}
+        <div className="absolute -top-16 -right-16 w-64 h-64 bg-white/10 rounded-full blur-3xl"></div>
+        <div className="absolute -bottom-12 -left-12 w-48 h-48 bg-white/5 rounded-full blur-2xl"></div>
+        <div className="absolute top-1/2 right-1/4 w-32 h-32 bg-violet-400/20 rounded-full blur-2xl"></div>
+
+        <div className="relative px-8 py-10">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+            {/* Left: avatar + greeting */}
+            <div className="flex items-center gap-6">
+              <div className="relative flex-shrink-0">
+                <div className="w-20 h-20 rounded-2xl bg-white/20 backdrop-blur-sm border-2 border-white/30 flex items-center justify-center shadow-xl">
+                  <span className="text-2xl font-bold text-white">{initials}</span>
+                </div>
+                <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-emerald-400 rounded-full border-2 border-white flex items-center justify-center">
+                  <div className="w-2 h-2 bg-white rounded-full"></div>
+                </div>
+              </div>
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <SparklesIcon className="h-4 w-4 text-yellow-300" />
+                  <span className="text-indigo-200 text-sm font-medium">Good {today.getHours() < 12 ? 'Morning' : today.getHours() < 17 ? 'Afternoon' : 'Evening'}</span>
+                </div>
+                <h1 className="text-3xl font-bold text-white">
+                  {user?.firstName} {user?.lastName}
+                </h1>
+                <p className="text-indigo-200 text-sm mt-1 flex items-center gap-2">
+                  <CalendarIcon className="h-4 w-4" />
+                  {dateStr}
+                </p>
+              </div>
             </div>
-            <div className="flex flex-col sm:flex-row gap-3">
+
+            {/* Right: action buttons */}
+            <div className="flex flex-wrap gap-3">
               <button
                 onClick={() => setShowProfile(!showProfile)}
-                className="inline-flex items-center px-6 py-3 bg-white/20 backdrop-blur-sm text-white rounded-xl hover:bg-white/30 transition-all duration-200 border border-white/20 hover:border-white/40"
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-white/15 backdrop-blur-sm text-white rounded-xl hover:bg-white/25 transition-all duration-200 border border-white/20 text-sm font-medium"
               >
-                {showProfile ? <EyeSlashIcon className="h-5 w-5 mr-2" /> : <EyeIcon className="h-5 w-5 mr-2" />}
-                {showProfile ? 'Hide Profile' : 'View Profile'}
+                <UserIcon className="h-4 w-4" />
+                {showProfile ? 'Hide Profile' : 'My Profile'}
               </button>
               <a
                 href="/results"
-                className="inline-flex items-center px-6 py-3 bg-blue-500/90 backdrop-blur-sm text-white rounded-xl hover:bg-blue-600 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-white text-indigo-700 rounded-xl hover:bg-indigo-50 transition-all duration-200 shadow-lg text-sm font-semibold"
               >
-                <ClipboardDocumentListIcon className="h-5 w-5 mr-2" />
+                <ClipboardDocumentListIcon className="h-4 w-4" />
                 Enter Results
               </a>
             </div>
           </div>
+
+          {/* Stats row */}
+          <div className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { label: 'Subjects', value: teacherProfile.subjects.length, icon: BookOpenIcon, color: 'text-violet-200' },
+              { label: 'Classes', value: teacherProfile.classes.length, icon: AcademicCapIcon, color: 'text-blue-200' },
+              { label: 'Session', value: teacherProfile.academicSession, icon: CalendarIcon, color: 'text-emerald-200' },
+              { label: 'Experience', value: teacherProfile.experience !== 'Not specified' ? teacherProfile.experience : '—', icon: StarIcon, color: 'text-yellow-200' },
+            ].map((s) => (
+              <div key={s.label} className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 border border-white/10">
+                <s.icon className={`h-5 w-5 ${s.color} mb-2`} />
+                <p className="text-2xl font-bold text-white">{s.value}</p>
+                <p className="text-indigo-200 text-xs mt-0.5">{s.label}</p>
+              </div>
+            ))}
+          </div>
         </div>
-        {/* Decorative elements */}
-        <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-white/10 rounded-full"></div>
-        <div className="absolute bottom-0 left-0 -mb-8 -ml-8 w-32 h-32 bg-white/5 rounded-full"></div>
       </div>
 
-      {/* Teacher Profile Section */}
+      {/* ── PROFILE PANEL ── */}
       {showProfile && (
-        <div className="bg-white/80 backdrop-blur-xl shadow-2xl rounded-2xl border border-white/20 overflow-hidden">
-          <div className="bg-gradient-to-r from-green-500 to-emerald-600 px-8 py-6">
-            <h3 className="text-2xl font-bold text-white flex items-center">
-              <UserIcon className="h-6 w-6 mr-3" />
-              My Profile Information
+        <div className="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
+          <div className="bg-gradient-to-r from-indigo-500 to-violet-600 px-8 py-5">
+            <h3 className="text-xl font-bold text-white flex items-center gap-3">
+              <UserIcon className="h-5 w-5" />
+              Profile Information
             </h3>
           </div>
-          <div className="p-8">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              {/* Personal Information */}
-              <div className="space-y-6">
-                <h4 className="text-lg font-semibold text-gray-800 border-b-2 border-green-100 pb-3 flex items-center">
-                  <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center mr-3">
-                    <UserIcon className="h-4 w-4 text-green-600" />
-                  </div>
-                  Personal Information
-                </h4>
-                
-                <div className="space-y-4">
-                  <div className="flex items-center space-x-4 p-4 bg-gray-50/50 rounded-xl">
-                    <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                      <UserIcon className="h-5 w-5 text-blue-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">Full Name</p>
-                      <p className="text-sm text-gray-600">{user?.firstName} {user?.lastName}</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-4 p-4 bg-gray-50/50 rounded-xl">
-                    <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                      <EnvelopeIcon className="h-5 w-5 text-green-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">Email</p>
-                      <p className="text-sm text-gray-600">{user?.email}</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-4 p-4 bg-gray-50/50 rounded-xl">
-                    <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-                      <PhoneIcon className="h-5 w-5 text-purple-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">Phone Number</p>
-                      <p className="text-sm text-gray-600">{teacherProfile.phoneNumber}</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-4 p-4 bg-gray-50/50 rounded-xl">
-                    <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
-                      <MapPinIcon className="h-5 w-5 text-orange-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">Address</p>
-                      <p className="text-sm text-gray-600">{teacherProfile.address}</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-4 p-4 bg-gray-50/50 rounded-xl">
-                    <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
-                      <CalendarIcon className="h-5 w-5 text-red-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">Date of Birth</p>
-                      <p className="text-sm text-gray-600">{new Date(teacherProfile.dateOfBirth).toLocaleDateString()}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Professional Information */}
-              <div className="space-y-6">
-                <h4 className="text-lg font-semibold text-gray-800 border-b-2 border-blue-100 pb-3 flex items-center">
-                  <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center mr-3">
-                    <BriefcaseIcon className="h-4 w-4 text-blue-600" />
-                  </div>
-                  Professional Information
-                </h4>
-                
-                <div className="space-y-4">
-                  <div className="flex items-center space-x-4 p-4 bg-gray-50/50 rounded-xl">
-                    <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                      <BriefcaseIcon className="h-5 w-5 text-blue-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">Teacher ID</p>
-                      <p className="text-sm text-gray-600">{teacherProfile.teacherId}</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-4 p-4 bg-gray-50/50 rounded-xl">
-                    <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                      <CalendarIcon className="h-5 w-5 text-green-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">Academic Session</p>
-                      <p className="text-sm text-gray-600">{teacherProfile.academicSession}</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-4 p-4 bg-gray-50/50 rounded-xl">
-                    <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-                      <CalendarIcon className="h-5 w-5 text-purple-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">Employment Date</p>
-                      <p className="text-sm text-gray-600">{new Date(teacherProfile.employmentDate).toLocaleDateString()}</p>
-                    </div>
-                  </div>
-
-                  <div className="p-4 bg-gray-50/50 rounded-xl">
-                    <p className="text-sm font-medium text-gray-900 mb-3">Subjects Teaching</p>
-                    <div className="flex flex-wrap gap-2">
-                      {teacherProfile.subjects.map((subject, index) => (
-                        <span key={index} className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gradient-to-r from-blue-100 to-indigo-100 text-blue-800 border border-blue-200">
-                          {subject}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="p-4 bg-gray-50/50 rounded-xl">
-                    <p className="text-sm font-medium text-gray-900 mb-3">Classes Teaching</p>
-                    <div className="flex flex-wrap gap-2">
-                      {teacherProfile.classes.map((className, index) => (
-                        <span key={index} className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gradient-to-r from-green-100 to-emerald-100 text-green-800 border border-green-200">
-                          {className}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Qualifications & Experience */}
-              <div className="md:col-span-2 space-y-6">
-                <h4 className="text-lg font-semibold text-gray-800 border-b-2 border-purple-100 pb-3 flex items-center">
-                  <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center mr-3">
-                    <AcademicCapIcon className="h-4 w-4 text-purple-600" />
-                  </div>
-                  Qualifications & Experience
-                </h4>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="p-6 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl border border-blue-100">
-                    <p className="text-sm font-medium text-gray-900 mb-3 flex items-center">
-                      <AcademicCapIcon className="h-4 w-4 text-blue-600 mr-2" />
-                      Qualifications
-                    </p>
-                    <p className="text-sm text-gray-700">{teacherProfile.qualifications}</p>
-                  </div>
-
-                  <div className="p-6 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border border-green-100">
-                    <p className="text-sm font-medium text-gray-900 mb-3 flex items-center">
-                      <BriefcaseIcon className="h-4 w-4 text-green-600 mr-2" />
-                      Teaching Experience
-                    </p>
-                    <p className="text-sm text-gray-700">{teacherProfile.experience}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-        {statCards.map((card, index) => (
-          <div key={card.name} className="group relative overflow-hidden bg-white/80 backdrop-blur-xl rounded-2xl shadow-xl border border-white/20 hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1">
-            <div className="absolute inset-0 bg-gradient-to-br from-white/50 to-transparent"></div>
-            <div className="relative p-6">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <div className={`${card.color} rounded-2xl p-4 shadow-lg group-hover:scale-110 transition-transform duration-300`}>
-                    <card.icon className="h-8 w-8 text-white" />
-                  </div>
-                </div>
-                <div className="ml-6 w-0 flex-1">
-                  <dl>
-                    <dt className="text-sm font-medium text-gray-500 truncate">{card.name}</dt>
-                    <dd className="text-2xl font-bold text-gray-900 group-hover:text-green-600 transition-colors duration-300">{card.value}</dd>
-                  </dl>
-                </div>
-              </div>
-            </div>
-            {/* Decorative element */}
-            <div className="absolute top-0 right-0 -mt-4 -mr-4 w-16 h-16 bg-gradient-to-br from-white/20 to-transparent rounded-full"></div>
-          </div>
-        ))}
-      </div>
-
-      {/* Quick Actions */}
-      <div className="bg-white/80 backdrop-blur-xl shadow-2xl rounded-2xl border border-white/20 overflow-hidden">
-        <div className="bg-gradient-to-r from-green-500 to-emerald-600 px-8 py-6">
-          <h3 className="text-2xl font-bold text-white flex items-center">
-            <BoltIcon className="h-6 w-6 mr-3" />
-            Quick Actions
-          </h3>
-        </div>
-        <div className="p-8">
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            <button 
-              onClick={() => setShowProfile(!showProfile)}
-              className="group relative bg-white/50 p-8 focus-within:ring-2 focus-within:ring-inset focus-within:ring-indigo-500 rounded-2xl border border-gray-200/50 hover:border-indigo-300/50 transition-all duration-300 hover:shadow-xl transform hover:-translate-y-1"
-            >
-              <div className="mb-6">
-                <span className="rounded-2xl inline-flex p-4 bg-gradient-to-br from-indigo-500 to-indigo-600 text-white shadow-lg group-hover:shadow-xl group-hover:scale-110 transition-all duration-300">
-                  <UserIcon className="h-8 w-8" />
-                </span>
-              </div>
-              <div>
-                <h3 className="text-xl font-bold text-gray-900 group-hover:text-indigo-600 transition-colors duration-300">
-                  My Profile
-                </h3>
-                <p className="mt-3 text-gray-600 group-hover:text-gray-700 transition-colors duration-300">
-                  View my complete information and qualifications.
-                </p>
-              </div>
-              <div className="absolute top-0 right-0 -mt-4 -mr-4 w-16 h-16 bg-gradient-to-br from-indigo-100/50 to-transparent rounded-full"></div>
-            </button>
-
-            <a href="/results" className="group relative bg-white/50 p-8 focus-within:ring-2 focus-within:ring-inset focus-within:ring-blue-500 rounded-2xl border border-gray-200/50 hover:border-blue-300/50 transition-all duration-300 hover:shadow-xl transform hover:-translate-y-1">
-              <div className="mb-6">
-                <span className="rounded-2xl inline-flex p-4 bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg group-hover:shadow-xl group-hover:scale-110 transition-all duration-300">
-                  <ClipboardDocumentListIcon className="h-8 w-8" />
-                </span>
-              </div>
-              <div>
-                <h3 className="text-xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors duration-300">
-                  Enter Results
-                </h3>
-                <p className="mt-3 text-gray-600 group-hover:text-gray-700 transition-colors duration-300">
-                  Input student grades and assessments for all subjects.
-                </p>
-              </div>
-              <div className="absolute top-0 right-0 -mt-4 -mr-4 w-16 h-16 bg-gradient-to-br from-blue-100/50 to-transparent rounded-full"></div>
-            </a>
-
-            <a href="/students" className="group relative bg-white/50 p-8 focus-within:ring-2 focus-within:ring-inset focus-within:ring-green-500 rounded-2xl border border-gray-200/50 hover:border-green-300/50 transition-all duration-300 hover:shadow-xl transform hover:-translate-y-1">
-              <div className="mb-6">
-                <span className="rounded-2xl inline-flex p-4 bg-gradient-to-br from-green-500 to-green-600 text-white shadow-lg group-hover:shadow-xl group-hover:scale-110 transition-all duration-300">
-                  <AcademicCapIcon className="h-8 w-8" />
-                </span>
-              </div>
-              <div>
-                <h3 className="text-xl font-bold text-gray-900 group-hover:text-green-600 transition-colors duration-300">
-                  View Students
-                </h3>
-                <p className="mt-3 text-gray-600 group-hover:text-gray-700 transition-colors duration-300">
-                  Manage your class students and track their progress.
-                </p>
-              </div>
-              <div className="absolute top-0 right-0 -mt-4 -mr-4 w-16 h-16 bg-gradient-to-br from-green-100/50 to-transparent rounded-full"></div>
-            </a>
-
-            <a href="/messages" className="group relative bg-white/50 p-8 focus-within:ring-2 focus-within:ring-inset focus-within:ring-purple-500 rounded-2xl border border-gray-200/50 hover:border-purple-300/50 transition-all duration-300 hover:shadow-xl transform hover:-translate-y-1">
-              <div className="mb-6">
-                <span className="rounded-2xl inline-flex p-4 bg-gradient-to-br from-purple-500 to-purple-600 text-white shadow-lg group-hover:shadow-xl group-hover:scale-110 transition-all duration-300">
-                  <ChatBubbleLeftRightIcon className="h-8 w-8" />
-                </span>
-              </div>
-              <div>
-                <h3 className="text-xl font-bold text-gray-900 group-hover:text-purple-600 transition-colors duration-300">
-                  Messages
-                </h3>
-                <p className="mt-3 text-gray-600 group-hover:text-gray-700 transition-colors duration-300">
-                  Communicate with parents, students, and admin.
-                </p>
-              </div>
-              <div className="absolute top-0 right-0 -mt-4 -mr-4 w-16 h-16 bg-gradient-to-br from-purple-100/50 to-transparent rounded-full"></div>
-            </a>
-          </div>
-        </div>
-      </div>
-
-      {/* Today's Schedule & Recent Activities */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Today's Schedule */}
-        <div className="bg-white/80 backdrop-blur-xl shadow-2xl rounded-2xl border border-white/20 overflow-hidden">
-          <div className="bg-gradient-to-r from-blue-500 to-indigo-600 px-8 py-6">
-            <h3 className="text-2xl font-bold text-white flex items-center">
-              <CalendarIcon className="h-6 w-6 mr-3" />
-              Today's Schedule
-            </h3>
-          </div>
-          <div className="p-8">
+          <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+            {/* Personal */}
             <div className="space-y-4">
-              {todaySchedule.map((schedule, index) => (
-                <div key={index} className="flex items-center justify-between p-4 bg-blue-50/50 rounded-xl border border-blue-100/50 hover:shadow-md transition-all duration-200">
-                  <div className="flex items-center space-x-4">
-                    <div className="flex-shrink-0">
-                      <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-lg">
-                        <ClockIcon className="h-6 w-6 text-white" />
-                      </div>
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">{schedule.subject}</p>
-                      <p className="text-xs text-gray-600 mt-1">{schedule.class} • {schedule.room}</p>
-                    </div>
+              <h4 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Personal</h4>
+              {[
+                { icon: UserIcon, label: 'Full Name', value: `${user?.firstName} ${user?.lastName}`, color: 'bg-indigo-100 text-indigo-600' },
+                { icon: EnvelopeIcon, label: 'Email', value: user?.email || '—', color: 'bg-blue-100 text-blue-600' },
+                { icon: PhoneIcon, label: 'Phone', value: teacherProfile.phoneNumber || '—', color: 'bg-violet-100 text-violet-600' },
+                { icon: MapPinIcon, label: 'Address', value: teacherProfile.address || '—', color: 'bg-emerald-100 text-emerald-600' },
+                { icon: CalendarIcon, label: 'Date of Birth', value: teacherProfile.dateOfBirth ? new Date(teacherProfile.dateOfBirth).toLocaleDateString() : '—', color: 'bg-rose-100 text-rose-600' },
+              ].map((item) => (
+                <div key={item.label} className="flex items-center gap-4 p-4 bg-gray-50 rounded-2xl">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${item.color}`}>
+                    <item.icon className="h-5 w-5" />
                   </div>
-                  <div className="text-sm font-medium text-blue-600 bg-blue-100 px-3 py-1 rounded-lg">{schedule.time}</div>
+                  <div>
+                    <p className="text-xs text-gray-400">{item.label}</p>
+                    <p className="text-sm font-medium text-gray-800">{item.value}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Professional */}
+            <div className="space-y-4">
+              <h4 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Professional</h4>
+              {[
+                { icon: BriefcaseIcon, label: 'Teacher ID', value: teacherProfile.teacherId || '—', color: 'bg-orange-100 text-orange-600' },
+                { icon: CalendarIcon, label: 'Employment Date', value: teacherProfile.employmentDate ? new Date(teacherProfile.employmentDate).toLocaleDateString() : '—', color: 'bg-teal-100 text-teal-600' },
+                { icon: AcademicCapIcon, label: 'Qualifications', value: teacherProfile.qualifications, color: 'bg-purple-100 text-purple-600' },
+                { icon: StarIcon, label: 'Experience', value: teacherProfile.experience, color: 'bg-yellow-100 text-yellow-600' },
+              ].map((item) => (
+                <div key={item.label} className="flex items-center gap-4 p-4 bg-gray-50 rounded-2xl">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${item.color}`}>
+                    <item.icon className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-400">{item.label}</p>
+                    <p className="text-sm font-medium text-gray-800">{item.value}</p>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
         </div>
+      )}
 
-        {/* Recent Activities */}
-        <div className="bg-white/80 backdrop-blur-xl shadow-2xl rounded-2xl border border-white/20 overflow-hidden">
-          <div className="bg-gradient-to-r from-green-500 to-emerald-600 px-8 py-6">
-            <h3 className="text-2xl font-bold text-white flex items-center">
-              <ClockIcon className="h-6 w-6 mr-3" />
-              Recent Activities
-            </h3>
-          </div>
-          <div className="p-8">
-            <div className="space-y-4">
-              <div className="flex items-center space-x-4 p-4 bg-blue-50/50 rounded-xl border border-blue-100/50">
-                <div className="flex-shrink-0">
-                  <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-lg">
-                    <ClipboardDocumentListIcon className="h-6 w-6 text-white" />
-                  </div>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-900">Submitted grades for JSS 2A Mathematics</p>
-                  <p className="text-xs text-gray-500 mt-1">2 hours ago</p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-4 p-4 bg-green-50/50 rounded-xl border border-green-100/50">
-                <div className="flex-shrink-0">
-                  <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center shadow-lg">
-                    <ChatBubbleLeftRightIcon className="h-6 w-6 text-white" />
-                  </div>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-900">Replied to parent message</p>
-                  <p className="text-xs text-gray-500 mt-1">5 hours ago</p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-4 p-4 bg-yellow-50/50 rounded-xl border border-yellow-100/50">
-                <div className="flex-shrink-0">
-                  <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-yellow-500 to-yellow-600 flex items-center justify-center shadow-lg">
-                    <AcademicCapIcon className="h-6 w-6 text-white" />
-                  </div>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-900">Updated class attendance</p>
-                  <p className="text-xs text-gray-500 mt-1">1 day ago</p>
-                </div>
-              </div>
+      {/* ── MY SUBJECTS ── */}
+      <div className="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
+        <div className="px-8 py-6 flex items-center justify-between border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-violet-100 rounded-xl flex items-center justify-center">
+              <BookOpenIcon className="h-5 w-5 text-violet-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-900">My Subjects</h3>
+              <p className="text-xs text-gray-400">{teacherProfile.subjects.length} subject{teacherProfile.subjects.length !== 1 ? 's' : ''} assigned</p>
             </div>
           </div>
         </div>
+        <div className="p-8">
+          {teacherProfile.subjects.length > 0 ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+              {teacherProfile.subjects.map((subject, i) => (
+                <div
+                  key={i}
+                  className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${SUBJECT_COLORS[i % SUBJECT_COLORS.length]} p-5 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1 cursor-default`}
+                >
+                  <div className="absolute -top-4 -right-4 w-16 h-16 bg-white/10 rounded-full"></div>
+                  <BookOpenIcon className="h-6 w-6 text-white/80 mb-3" />
+                  <p className="text-white font-semibold text-sm leading-tight">{subject}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <BookOpenIcon className="h-12 w-12 text-gray-200 mx-auto mb-3" />
+              <p className="text-gray-400 text-sm">No subjects assigned yet.</p>
+              <p className="text-gray-300 text-xs mt-1">Contact admin to assign subjects.</p>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* ── MY CLASSES ── */}
+      <div className="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
+        <div className="px-8 py-6 flex items-center justify-between border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+              <AcademicCapIcon className="h-5 w-5 text-blue-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-900">My Classes</h3>
+              <p className="text-xs text-gray-400">{teacherProfile.classes.length} class{teacherProfile.classes.length !== 1 ? 'es' : ''} assigned</p>
+            </div>
+          </div>
+          <a href="/classes" className="text-sm text-blue-600 hover:text-blue-700 font-medium">View all →</a>
+        </div>
+        <div className="p-8">
+          {teacherProfile.classes.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {teacherProfile.classes.map((cls, i) => (
+                <div
+                  key={i}
+                  className={`border-l-4 ${CLASS_COLORS[i % CLASS_COLORS.length]} rounded-2xl p-5 hover:shadow-md transition-all duration-200`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-bold text-gray-900">{cls}</p>
+                      <p className="text-xs text-gray-400 mt-1">Academic Class</p>
+                    </div>
+                    <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center">
+                      <AcademicCapIcon className="h-5 w-5 text-gray-400" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <AcademicCapIcon className="h-12 w-12 text-gray-200 mx-auto mb-3" />
+              <p className="text-gray-400 text-sm">No classes assigned yet.</p>
+              <p className="text-gray-300 text-xs mt-1">Contact admin to assign classes.</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── QUICK ACTIONS ── */}
+      <div className="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
+        <div className="px-8 py-6 border-b border-gray-100 flex items-center gap-3">
+          <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center">
+            <BoltIcon className="h-5 w-5 text-amber-600" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-gray-900">Quick Actions</h3>
+            <p className="text-xs text-gray-400">Jump to key tasks</p>
+          </div>
+        </div>
+        <div className="p-8 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          {[
+            { href: '/results', icon: ClipboardDocumentListIcon, label: 'Enter Results', color: 'bg-blue-500 hover:bg-blue-600', light: 'bg-blue-50 text-blue-600' },
+            { href: '/students', icon: AcademicCapIcon, label: 'View Students', color: 'bg-emerald-500 hover:bg-emerald-600', light: 'bg-emerald-50 text-emerald-600' },
+            { href: '/messages', icon: ChatBubbleLeftRightIcon, label: 'Messages', color: 'bg-violet-500 hover:bg-violet-600', light: 'bg-violet-50 text-violet-600' },
+            { href: '/user-reports', icon: DocumentTextIcon, label: 'Submit Report', color: 'bg-orange-500 hover:bg-orange-600', light: 'bg-orange-50 text-orange-600' },
+            { href: '/attendance', icon: ChartBarIcon, label: 'Attendance', color: 'bg-rose-500 hover:bg-rose-600', light: 'bg-rose-50 text-rose-600' },
+          ].map((action) => (
+            <a
+              key={action.href}
+              href={action.href}
+              className="group flex flex-col items-center gap-3 p-5 rounded-2xl border border-gray-100 hover:border-transparent hover:shadow-lg transition-all duration-300 hover:-translate-y-1"
+            >
+              <div className={`w-12 h-12 rounded-2xl ${action.light} flex items-center justify-center group-hover:scale-110 transition-transform duration-300`}>
+                <action.icon className="h-6 w-6" />
+              </div>
+              <span className="text-xs font-semibold text-gray-600 text-center leading-tight">{action.label}</span>
+            </a>
+          ))}
+        </div>
+      </div>
+
+      {/* ── SCHEDULE + TIPS ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Today's Schedule */}
+        <div className="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
+          <div className="px-8 py-6 border-b border-gray-100 flex items-center gap-3">
+            <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center">
+              <CalendarIcon className="h-5 w-5 text-indigo-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-900">Today's Schedule</h3>
+              <p className="text-xs text-gray-400">Your classes for today</p>
+            </div>
+          </div>
+          <div className="p-6 space-y-3">
+            {[
+              { time: '8:00 AM', subject: 'Mathematics', class: 'JSS 2A', room: 'Room 101', color: 'bg-violet-500' },
+              { time: '10:00 AM', subject: 'Physics', class: 'SS 3B', room: 'Lab 1', color: 'bg-blue-500' },
+              { time: '12:00 PM', subject: 'Mathematics', class: 'SS 1A', room: 'Room 102', color: 'bg-emerald-500' },
+              { time: '2:00 PM', subject: 'Further Maths', class: 'SS 3A', room: 'Room 103', color: 'bg-orange-500' },
+            ].map((s, i) => (
+              <div key={i} className="flex items-center gap-4 p-4 rounded-2xl hover:bg-gray-50 transition-colors duration-200">
+                <div className={`w-1.5 h-12 ${s.color} rounded-full flex-shrink-0`}></div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-gray-900 text-sm">{s.subject}</p>
+                  <p className="text-xs text-gray-400">{s.class} · {s.room}</p>
+                </div>
+                <span className="text-xs font-medium text-gray-500 bg-gray-100 px-3 py-1.5 rounded-lg flex-shrink-0">
+                  {s.time}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Teaching Tips / Activity */}
+        <div className="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
+          <div className="px-8 py-6 border-b border-gray-100 flex items-center gap-3">
+            <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center">
+              <ArrowTrendingUpIcon className="h-5 w-5 text-emerald-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-900">Teaching Tips</h3>
+              <p className="text-xs text-gray-400">Helpful reminders</p>
+            </div>
+          </div>
+          <div className="p-6 space-y-4">
+            {[
+              { title: 'Grade Submissions', desc: 'Ensure all CA scores are entered before the deadline.', icon: ClipboardDocumentListIcon, color: 'bg-blue-50 text-blue-600' },
+              { title: 'Student Attendance', desc: 'Mark attendance daily to keep accurate records.', icon: ChartBarIcon, color: 'bg-emerald-50 text-emerald-600' },
+              { title: 'Parent Communication', desc: 'Reach out to parents of struggling students early.', icon: ChatBubbleLeftRightIcon, color: 'bg-violet-50 text-violet-600' },
+              { title: 'Report Submission', desc: 'Submit term reports to admin before the deadline.', icon: DocumentTextIcon, color: 'bg-orange-50 text-orange-600' },
+            ].map((tip, i) => (
+              <div key={i} className="flex items-start gap-4 p-4 rounded-2xl hover:bg-gray-50 transition-colors duration-200">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${tip.color}`}>
+                  <tip.icon className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">{tip.title}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{tip.desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
     </div>
   );
 }

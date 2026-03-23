@@ -77,7 +77,7 @@ export default function HomepageManager() {
     deleteNewsEvent,
     loading 
   } = useContent();
-  const [activeTab, setActiveTab] = useState<'sections' | 'news' | 'media' | 'preview'>('sections');
+  const [activeTab, setActiveTab] = useState<'sections' | 'news' | 'gallery' | 'media' | 'preview'>('sections');
   const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
   const [editingSection, setEditingSection] = useState<HomepageSection | null>(null);
   const [editingNews, setEditingNews] = useState<NewsEvent | null>(null);
@@ -85,11 +85,26 @@ export default function HomepageManager() {
   const [showNewsForm, setShowNewsForm] = useState(false);
   const [showMediaUpload, setShowMediaUpload] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
+  const [galleryUploading, setGalleryUploading] = useState(false);
+  const [galleryImages, setGalleryImages] = useState<string[]>([]);
+  const [galleryVideos, setGalleryVideos] = useState<string[]>([]);
 
   useEffect(() => {
     loadMediaData();
     loadHomepageContent();
+    loadGallery();
   }, []);
+
+  const loadGallery = async () => {
+    try {
+      const res = await fetch('/api/gallery');
+      if (res.ok) {
+        const data = await res.json();
+        setGalleryImages(data.images || []);
+        setGalleryVideos(data.videos || []);
+      }
+    } catch {}
+  };
 
   const loadHomepageContent = async () => {
     try {
@@ -262,6 +277,121 @@ export default function HomepageManager() {
       default: return DocumentTextIcon;
     }
   };
+
+  // ── Gallery helpers (server-side storage via /api/gallery) ──────────────────
+  const compressImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        if (!dataUrl) return reject(new Error('Failed to read file'));
+        if (dataUrl.length <= 600 * 1024) return resolve(dataUrl);
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const maxDim = 1024;
+          let { width, height } = img;
+          if (width > maxDim || height > maxDim) {
+            const ratio = Math.min(maxDim / width, maxDim / height);
+            width = Math.round(width * ratio);
+            height = Math.round(height * ratio);
+          }
+          canvas.width = width;
+          canvas.height = height;
+          canvas.getContext('2d')?.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.78));
+        };
+        img.onerror = () => resolve(dataUrl);
+        img.src = dataUrl;
+      };
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleGalleryImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []).filter(f => f.type.startsWith('image/'));
+    if (!files.length) return;
+    setGalleryUploading(true);
+    try {
+      const dataUrls = await Promise.all(files.map(compressImage));
+      const res = await fetch('/api/gallery', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ images: dataUrls })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setGalleryImages(data.images || []);
+        toast.success(`${dataUrls.length} photo(s) added to gallery`);
+      } else {
+        toast.error('Failed to save photos');
+      }
+    } catch {
+      toast.error('Failed to process images');
+    } finally {
+      setGalleryUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleGalleryVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []).filter(f => f.type.startsWith('video/'));
+    if (!files.length) return;
+    setGalleryUploading(true);
+    try {
+      const dataUrls = await Promise.all(files.map(f => new Promise<string>((res, rej) => {
+        const reader = new FileReader();
+        reader.onload = ev => res(ev.target?.result as string);
+        reader.onerror = () => rej(new Error('Failed to read video'));
+        reader.readAsDataURL(f);
+      })));
+      const res = await fetch('/api/gallery', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videos: dataUrls })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setGalleryVideos(data.videos || []);
+        toast.success(`${dataUrls.length} video(s) added to gallery`);
+      } else {
+        toast.error('Failed to save videos');
+      }
+    } catch {
+      toast.error('Failed to process videos');
+    } finally {
+      setGalleryUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleDeleteGalleryImage = async (index: number) => {
+    const res = await fetch('/api/gallery', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'image', index })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setGalleryImages(data.images || []);
+      toast.success('Photo removed');
+    }
+  };
+
+  const handleDeleteGalleryVideo = async (index: number) => {
+    const res = await fetch('/api/gallery', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'video', index })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setGalleryVideos(data.videos || []);
+      toast.success('Video removed');
+    }
+  };
+  // ────────────────────────────────────────────────────────────────────────────
 
   const SectionForm = () => {
     const [selectedImages, setSelectedImages] = useState<File[]>([]);
@@ -540,42 +670,6 @@ export default function HomepageManager() {
                     Clear New Images
                   </button>
                 )}
-                {/* Debug button */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    console.log('Debug: Selected images:', selectedImages);
-                    console.log('Debug: Image previews:', imagePreviews);
-                    console.log('Debug: Editing section:', editingSection);
-                    console.log('Debug: Current sections from context:', sections);
-                    const gallerySection = sections.find(s => s.type === 'gallery');
-                    console.log('Debug: Current gallery section:', gallerySection);
-                  }}
-                  className="text-blue-600 hover:text-blue-800 text-sm"
-                >
-                  Debug Images
-                </button>
-                {/* Test localStorage button */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    try {
-                      const testData = localStorage.getItem(STORAGE_KEYS.SECTIONS);
-                      console.log('Debug: localStorage sections data length:', testData?.length || 0);
-                      if (testData) {
-                        const parsed = JSON.parse(testData);
-                        console.log('Debug: Parsed sections:', parsed);
-                        const gallerySection = parsed.find((s: any) => s.type === 'gallery');
-                        console.log('Debug: Gallery section from localStorage:', gallerySection);
-                      }
-                    } catch (error) {
-                      console.error('Debug: Error reading localStorage:', error);
-                    }
-                  }}
-                  className="text-green-600 hover:text-green-800 text-sm"
-                >
-                  Test Storage
-                </button>
               </div>
               <p className="text-xs text-gray-500 mt-1">
                 Supported formats: JPG, PNG, GIF, WebP (Max 5MB each). Images will be stored as data URLs for persistence.
@@ -879,19 +973,6 @@ export default function HomepageManager() {
             <LinkIcon className="h-4 w-4 mr-2" />
             View Live Site
           </a>
-          {/* Debug button to clear localStorage */}
-          <button
-            onClick={() => {
-              if (confirm('Clear all homepage content from localStorage? This will reset all sections and news.')) {
-                localStorage.removeItem(STORAGE_KEYS.SECTIONS);
-                localStorage.removeItem(STORAGE_KEYS.NEWS_EVENTS);
-                window.location.reload();
-              }
-            }}
-            className="inline-flex items-center px-3 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm"
-          >
-            Clear Storage
-          </button>
         </div>
       </div>
 
@@ -901,6 +982,7 @@ export default function HomepageManager() {
           {[
             { key: 'sections', label: 'Sections', count: sections.length },
             { key: 'news', label: 'News & Events', count: newsEvents.length },
+            { key: 'gallery', label: 'Gallery', count: null },
             { key: 'media', label: 'Media Library', count: mediaFiles.length },
             { key: 'preview', label: 'Preview', count: null }
           ].map((tab) => (
@@ -1106,6 +1188,99 @@ export default function HomepageManager() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {activeTab === 'gallery' && (
+        <div className="space-y-8">
+          {/* Photos */}
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-medium text-gray-900">Photos</h3>
+                <p className="text-sm text-gray-500">{galleryImages.length} photo(s) uploaded</p>
+              </div>
+              <label className={`cursor-pointer inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 ${galleryUploading ? 'opacity-60 pointer-events-none' : ''}`}>
+                <PhotoIcon className="h-4 w-4 mr-2" />
+                {galleryUploading ? 'Uploading...' : 'Upload Photos'}
+                <input type="file" accept="image/*" multiple onChange={handleGalleryImageUpload} className="hidden" />
+              </label>
+            </div>
+
+            {galleryImages.length > 0 ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {galleryImages.map((img, idx) => (
+                  <div key={idx} className="relative group rounded-lg overflow-hidden bg-gray-100 aspect-square">
+                    <img
+                      src={img}
+                      alt={`Gallery photo ${idx + 1}`}
+                      className="w-full h-full object-cover"
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                    />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <button
+                        onClick={() => handleDeleteGalleryImage(idx)}
+                        className="p-2 bg-red-600 text-white rounded-full hover:bg-red-700"
+                        title="Delete photo"
+                      >
+                        <TrashIcon className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div className="absolute bottom-1 right-1 bg-black/50 text-white text-xs px-1 rounded">
+                      {idx + 1}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center">
+                <PhotoIcon className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                <p className="text-gray-500">No photos yet. Upload some to get started.</p>
+              </div>
+            )}
+          </div>
+
+          {/* Videos */}
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-medium text-gray-900">Videos</h3>
+                <p className="text-sm text-gray-500">{galleryVideos.length} video(s) uploaded</p>
+              </div>
+              <label className={`cursor-pointer inline-flex items-center px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 ${galleryUploading ? 'opacity-60 pointer-events-none' : ''}`}>
+                <VideoCameraIcon className="h-4 w-4 mr-2" />
+                {galleryUploading ? 'Uploading...' : 'Upload Videos'}
+                <input type="file" accept="video/*" multiple onChange={handleGalleryVideoUpload} className="hidden" />
+              </label>
+            </div>
+
+            {galleryVideos.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {galleryVideos.map((vid, idx) => (
+                  <div key={idx} className="relative group rounded-lg overflow-hidden bg-gray-100">
+                    <video src={vid} controls className="w-full h-48 object-cover" />
+                    <button
+                      onClick={() => handleDeleteGalleryVideo(idx)}
+                      className="absolute top-2 right-2 p-1.5 bg-red-600 text-white rounded-full hover:bg-red-700 opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="Delete video"
+                    >
+                      <TrashIcon className="h-4 w-4" />
+                    </button>
+                    <div className="absolute bottom-1 left-1 bg-black/50 text-white text-xs px-1 rounded">
+                      Video {idx + 1}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center">
+                <VideoCameraIcon className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                <p className="text-gray-500">No videos yet. Upload some to get started.</p>
+              </div>
+            )}
+          </div>
+
+          <p className="text-xs text-gray-400">Photos and videos uploaded here appear on the public homepage Gallery tab.</p>
         </div>
       )}
 

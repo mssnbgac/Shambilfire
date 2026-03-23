@@ -259,12 +259,13 @@ export default function ClassesPage() {
                               </button>
                               {user.role === 'admin' && (
                                 <>
-                                  <button
+                                  <Link
+                                    href={`/classes/edit/${classData.id}`}
                                     className="text-green-600 hover:text-green-900"
                                     title="Edit Class"
                                   >
                                     <PencilIcon className="h-4 w-4" />
-                                  </button>
+                                  </Link>
                                   <button
                                     onClick={() => handleDeleteClass(classData.id, classData.name)}
                                     className="text-red-600 hover:text-red-900"
