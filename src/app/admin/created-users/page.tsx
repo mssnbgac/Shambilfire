@@ -25,9 +25,9 @@ export default function CreatedUsersPage() {
     );
   }
 
-  const handleDeleteUser = (email: string) => {
+  const handleDeleteUser = async (email: string) => {
     if (confirm(`Are you sure you want to delete the user with email: ${email}?`)) {
-      const deleted = deleteCreatedUser(email);
+      const deleted = await Promise.resolve(deleteCreatedUser(email));
       if (deleted) {
         setCreatedUsers(getCreatedUsers());
         toast.success('User deleted successfully');
