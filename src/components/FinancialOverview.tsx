@@ -91,7 +91,7 @@ export default function FinancialOverview() {
     new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', minimumFractionDigits: 0 }).format(n);
 
   const methodIcon = (method: string) => {
-    switch (method.toLowerCase()) {
+    switch ((method || '').toLowerCase()) {
       case 'bank transfer': return <BanknotesIcon className="h-5 w-5" />;
       case 'cash': return <CurrencyDollarIcon className="h-5 w-5" />;
       case 'debit card': case 'credit card': case 'card': return <CreditCardIcon className="h-5 w-5" />;

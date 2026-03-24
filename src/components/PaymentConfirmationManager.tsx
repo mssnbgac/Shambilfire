@@ -135,7 +135,7 @@ export default function PaymentConfirmationManager() {
     new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', minimumFractionDigits: 0 }).format(n);
 
   const methodIcon = (method: string) => {
-    switch (method.toLowerCase()) {
+    switch ((method || '').toLowerCase()) {
       case 'bank transfer': return <BanknotesIcon className="h-5 w-5 text-blue-500" />;
       case 'cash': return <CurrencyDollarIcon className="h-5 w-5 text-green-500" />;
       default: return <DocumentTextIcon className="h-5 w-5 text-gray-500" />;
