@@ -1,7 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { userReportStorage, UserReport } from '@/lib/userReportStorage';
+import { supabaseAdmin } from '@/lib/supabase';
 
-// GET - Retrieve user reports
+function toAppReport(row: any) {
+  return {
+    id: row.id,
+    title: row.title,
+    content: row.content,
+    reportType: row.report_type,
+    priority: row.priority,
+    status: row.status,
+    createdBy: row.created_by,
+    createdByName: row.created_by_name,
+    createdByRole: row.created_by_role,
+    academicSession: row.academic_session,
+    term: row.term,
+    reviewedBy: row.reviewed_by,
+    reviewedByName: row.reviewed_by_name,
+    reviewedAt: row.reviewed_at,
+    reviewComments: row.review_comments,
+    submittedAt: row.submitted_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -10,136 +32,107 @@ export async function GET(request: NextRequest) {
     const reportType = searchParams.get('type');
     const role = searchParams.get('role');
     const search = searchParams.get('search');
-    
-    let reports: UserReport[];
-    
-    if (search) {
-      reports = userReportStorage.searchReports(search);
-    } else if (userId) {
-      reports = userReportStorage.getReportsByUser(userId);
-    } else if (status) {
-      reports = userReportStorage.getReportsByStatus(status as any);
-    } else if (reportType) {
-      reports = userReportStorage.getReportsByType(reportType as any);
-    } else if (role) {
-      reports = userReportStorage.getReportsByRole(role as any);
-    } else {
-      reports = userReportStorage.getAllReports();
-    }
-    
-    return NextResponse.json({ reports, success: true });
+
+    let query = supabaseAdmin.from('user_reports').select('*').order('created_at', { ascending: false });
+
+    if (userId) query = query.eq('created_by', userId);
+    if (status) query = query.eq('status', status);
+    if (reportType) query = query.eq('report_type', reportType);
+    if (role) query = query.eq('created_by_role', role);
+    if (search) query = query.or(`title.ilike.%${search}%,content.ilike.%${search}%`);
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    return NextResponse.json({ reports: (data || []).map(toAppReport), success: true });
   } catch (error) {
     console.error('GET /api/user-reports error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
-// POST - Create new report
 export async function POST(request: NextRequest) {
   try {
-    const reportData = await request.json();
-    
-    // Validate required fields
-    if (!reportData.title || !reportData.content || !reportData.reportType || !reportData.createdBy) {
-      return NextResponse.json({ 
-        error: 'Missing required fields: title, content, reportType, createdBy' 
-      }, { status: 400 });
+    const body = await request.json();
+    if (!body.title || !body.content || !body.reportType || !body.createdBy) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
-    
-    const newReport = userReportStorage.createReport(reportData);
-    
-    return NextResponse.json({ report: newReport, success: true }, { status: 201 });
+
+    const row = {
+      id: `report-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+      title: body.title,
+      content: body.content,
+      report_type: body.reportType,
+      priority: body.priority || 'medium',
+      status: 'draft',
+      created_by: body.createdBy,
+      created_by_name: body.createdByName || '',
+      created_by_role: body.createdByRole || '',
+      academic_session: body.academicSession || null,
+      term: body.term || null,
+    };
+
+    const { data, error } = await supabaseAdmin.from('user_reports').insert(row).select().single();
+    if (error) throw error;
+
+    return NextResponse.json({ report: toAppReport(data), success: true }, { status: 201 });
   } catch (error) {
     console.error('POST /api/user-reports error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
-// PUT - Update report
 export async function PUT(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const reportId = searchParams.get('id');
+    const id = searchParams.get('id');
     const action = searchParams.get('action');
-    
-    if (!reportId) {
-      return NextResponse.json({ error: 'Report ID required' }, { status: 400 });
-    }
-    
-    const updateData = await request.json();
-    let updatedReport: UserReport | null = null;
-    
+    if (!id) return NextResponse.json({ error: 'Report ID required' }, { status: 400 });
+
+    const body = await request.json();
+    const now = new Date().toISOString();
+    let updates: any = { updated_at: now };
+
     switch (action) {
       case 'submit':
-        updatedReport = userReportStorage.submitReport(reportId);
+        updates = { ...updates, status: 'submitted', submitted_at: now };
         break;
-        
       case 'review':
-        if (!updateData.adminId || !updateData.adminName) {
-          return NextResponse.json({ error: 'Admin ID and name required for review' }, { status: 400 });
-        }
-        updatedReport = userReportStorage.markUnderReview(reportId, updateData.adminId, updateData.adminName);
+        updates = { ...updates, status: 'under_review', reviewed_by: body.adminId, reviewed_by_name: body.adminName, reviewed_at: now };
         break;
-        
       case 'approve':
-        if (!updateData.adminId || !updateData.adminName) {
-          return NextResponse.json({ error: 'Admin ID and name required for approval' }, { status: 400 });
-        }
-        updatedReport = userReportStorage.approveReport(
-          reportId, 
-          updateData.adminId, 
-          updateData.adminName, 
-          updateData.comments
-        );
+        updates = { ...updates, status: 'approved', reviewed_by: body.adminId, reviewed_by_name: body.adminName, reviewed_at: now, review_comments: body.comments || null };
         break;
-        
       case 'reject':
-        if (!updateData.adminId || !updateData.adminName || !updateData.comments) {
-          return NextResponse.json({ 
-            error: 'Admin ID, name, and comments required for rejection' 
-          }, { status: 400 });
-        }
-        updatedReport = userReportStorage.rejectReport(
-          reportId, 
-          updateData.adminId, 
-          updateData.adminName, 
-          updateData.comments
-        );
+        updates = { ...updates, status: 'rejected', reviewed_by: body.adminId, reviewed_by_name: body.adminName, reviewed_at: now, review_comments: body.comments };
         break;
-        
       default:
-        updatedReport = userReportStorage.updateReport(reportId, updateData);
-        break;
+        if (body.title) updates.title = body.title;
+        if (body.content) updates.content = body.content;
+        if (body.priority) updates.priority = body.priority;
+        if (body.status) updates.status = body.status;
     }
-    
-    if (!updatedReport) {
-      return NextResponse.json({ error: 'Report not found or action not allowed' }, { status: 404 });
-    }
-    
-    return NextResponse.json({ report: updatedReport, success: true });
+
+    const { data, error } = await supabaseAdmin.from('user_reports').update(updates).eq('id', id).select().single();
+    if (error) throw error;
+
+    return NextResponse.json({ report: toAppReport(data), success: true });
   } catch (error) {
     console.error('PUT /api/user-reports error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
-// DELETE - Delete report
 export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const reportId = searchParams.get('id');
-    
-    if (!reportId) {
-      return NextResponse.json({ error: 'Report ID required' }, { status: 400 });
-    }
-    
-    const deleted = userReportStorage.deleteReport(reportId);
-    
-    if (!deleted) {
-      return NextResponse.json({ error: 'Report not found' }, { status: 404 });
-    }
-    
-    return NextResponse.json({ success: true, message: 'Report deleted successfully' });
+    const id = searchParams.get('id');
+    if (!id) return NextResponse.json({ error: 'Report ID required' }, { status: 400 });
+
+    const { error } = await supabaseAdmin.from('user_reports').delete().eq('id', id);
+    if (error) throw error;
+
+    return NextResponse.json({ success: true, message: 'Report deleted' });
   } catch (error) {
     console.error('DELETE /api/user-reports error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

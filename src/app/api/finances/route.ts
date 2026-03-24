@@ -1,20 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
-
-const PAYMENTS_FILE = path.join(process.cwd(), 'data', 'payments.json');
-const EXPENDITURES_FILE = path.join(process.cwd(), 'data', 'expenditures.json');
-
-function readJSON(filePath: string): any[] {
-  try {
-    if (!fs.existsSync(filePath)) return [];
-    const raw = fs.readFileSync(filePath, 'utf8').trim();
-    if (!raw) return [];
-    return JSON.parse(raw);
-  } catch {
-    return [];
-  }
-}
+import { supabaseAdmin } from '@/lib/supabase';
 
 export async function GET(request: NextRequest) {
   try {
@@ -26,33 +11,21 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Session and term required' }, { status: 400 });
     }
 
-    // Read directly from files — no internal HTTP calls
-    const allPayments: any[] = readJSON(PAYMENTS_FILE);
-    const allExpenditures: any[] = readJSON(EXPENDITURES_FILE);
+    const [{ data: payments }, { data: expenditures }] = await Promise.all([
+      supabaseAdmin.from('payments').select('amount').eq('session', session).eq('term', term),
+      supabaseAdmin.from('expenditures').select('amount, status, category').eq('session', session),
+    ]);
 
-    const payments = allPayments.filter(
-      (p) => p.academicSession === session && p.term === term
-    );
+    const totalIncome = (payments || []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
-    const expenditures = allExpenditures.filter(
-      (e) => e.academicSession === session
-    );
+    const approvedExp = (expenditures || []).filter(e => e.status === 'approved' || e.status === 'completed');
+    const totalExpenditure = approvedExp.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
 
-    const totalIncome = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-
-    const approvedExpenditures = expenditures.filter((e) => e.status === 'approved' || e.status === 'completed');
-    const totalExpenditure = approvedExpenditures.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-    const availableFunds = totalIncome - totalExpenditure;
-
-    const paymentMethods = payments.reduce((acc: any, p) => {
-      const method = p.paymentMethod || 'Unknown';
-      acc[method] = (acc[method] || 0) + (Number(p.amount) || 0);
-      return acc;
-    }, {});
-
-    const expenditureCategories = approvedExpenditures.reduce((acc: any, e) => {
-      const cat = e.category || 'Other';
-      acc[cat] = (acc[cat] || 0) + (Number(e.amount) || 0);
+    const expenditureCategories = (expenditures || []).reduce((acc: any, e) => {
+      if (e.status === 'approved' || e.status === 'completed') {
+        const cat = e.category || 'Other';
+        acc[cat] = (acc[cat] || 0) + (Number(e.amount) || 0);
+      }
       return acc;
     }, {});
 
@@ -63,12 +36,11 @@ export async function GET(request: NextRequest) {
         totalIncome,
         totalRevenue: totalIncome,
         totalExpenditure,
-        availableFunds,
-        totalPayments: payments.length,
-        totalExpenditures: expenditures.length,
-        approvedExpenditures: approvedExpenditures.length,
-        pendingExpenditures: expenditures.filter((e) => e.status === 'pending').length,
-        paymentMethods,
+        availableFunds: totalIncome - totalExpenditure,
+        totalPayments: (payments || []).length,
+        totalExpenditures: (expenditures || []).length,
+        approvedExpenditures: approvedExp.length,
+        pendingExpenditures: (expenditures || []).filter(e => e.status === 'pending').length,
         expenditureCategories,
         lastUpdated: new Date().toISOString(),
       },

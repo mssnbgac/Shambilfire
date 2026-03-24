@@ -1,177 +1,122 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
+import { supabaseAdmin } from '@/lib/supabase';
 
-// Persistent file-based storage for expenditures
-const EXPENDITURES_FILE = path.join(process.cwd(), 'data', 'expenditures.json');
-
-// Ensure data directory exists
-function ensureDataDirectory() {
-  const dataDir = path.dirname(EXPENDITURES_FILE);
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
-}
-
-// Load expenditures from persistent storage
-function loadExpenditures(): any[] {
-  try {
-    ensureDataDirectory();
-    
-    if (fs.existsSync(EXPENDITURES_FILE)) {
-      const data = fs.readFileSync(EXPENDITURES_FILE, 'utf8');
-      return JSON.parse(data);
-    } else {
-      // First time - create file with empty data
-      const emptyData = getDefaultExpenditures();
-      saveExpenditures(emptyData);
-      return emptyData;
-    }
-  } catch (error) {
-    console.error('Error loading expenditures:', error);
-    return getDefaultExpenditures();
-  }
-}
-
-// Save expenditures to persistent storage
-function saveExpenditures(expenditures: any[]): void {
-  try {
-    ensureDataDirectory();
-    fs.writeFileSync(EXPENDITURES_FILE, JSON.stringify(expenditures, null, 2));
-  } catch (error) {
-    console.error('Error saving expenditures:', error);
-  }
-}
-
-// Get default expenditures (empty array for fresh start)
-function getDefaultExpenditures(): any[] {
-  return [];
-}
-
-// GET - Retrieve expenditures
 export async function GET(request: NextRequest) {
   try {
-    const expenditures = loadExpenditures();
-    
     const { searchParams } = new URL(request.url);
     const session = searchParams.get('session');
     const term = searchParams.get('term');
     const status = searchParams.get('status');
     const userId = searchParams.get('userId');
-    
-    let filteredExpenditures = expenditures;
-    
-    if (session) {
-      filteredExpenditures = filteredExpenditures.filter(e => 
-        e.academicSession === session
-      );
-    }
-    
-    if (term) {
-      filteredExpenditures = filteredExpenditures.filter(e => 
-        e.term === term
-      );
-    }
-    
-    if (status) {
-      filteredExpenditures = filteredExpenditures.filter(e => e.status === status);
-    }
-    
-    if (userId) {
-      filteredExpenditures = filteredExpenditures.filter(e => e.requestedBy === userId);
-    }
-    
-    return NextResponse.json({ expenditures: filteredExpenditures });
+
+    let query = supabaseAdmin.from('expenditures').select('*').order('created_at', { ascending: false });
+
+    if (session) query = query.eq('session', session);
+    if (term) query = query.eq('term', term);
+    if (status) query = query.eq('status', status);
+    if (userId) query = query.eq('requested_by', userId);
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    return NextResponse.json({ expenditures: (data || []).map(toAppExpenditure) });
   } catch (error) {
     console.error('GET /api/expenditures error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
-// POST - Create new expenditure request
+
 export async function POST(request: NextRequest) {
   try {
-    const expenditures = loadExpenditures();
-    const expenditureData = await request.json();
-    
-    const newExpenditure = {
-      ...expenditureData,
-      id: `exp-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
+    const body = await request.json();
+
+    const row = {
+      id: `exp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+      title: body.title,
+      amount: Number(body.amount),
+      category: body.category || null,
+      description: body.description || null,
+      session: body.academicSession || body.session || null,
+      term: body.term || null,
       status: 'pending',
-      requestedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      requested_by: body.requestedBy || body.requested_by || null,
+      requested_by_name: body.requestedByName || body.requested_by_name || null,
     };
-    
-    expenditures.push(newExpenditure);
-    saveExpenditures(expenditures);
-    
-    return NextResponse.json({ expenditure: newExpenditure }, { status: 201 });
+
+    const { data, error } = await supabaseAdmin.from('expenditures').insert(row).select().single();
+    if (error) throw error;
+
+    return NextResponse.json({ expenditure: toAppExpenditure(data) }, { status: 201 });
   } catch (error) {
     console.error('POST /api/expenditures error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
-// PUT - Update expenditure (approve/reject/edit)
+
 export async function PUT(request: NextRequest) {
   try {
-    const expenditures = loadExpenditures();
     const { searchParams } = new URL(request.url);
-    const expenditureId = searchParams.get('id');
-    const updateData = await request.json();
-    
-    if (!expenditureId) {
-      return NextResponse.json({ error: 'Expenditure ID required' }, { status: 400 });
-    }
-    
-    const expenditureIndex = expenditures.findIndex(e => e.id === expenditureId);
-    
-    if (expenditureIndex === -1) {
-      return NextResponse.json({ error: 'Expenditure not found' }, { status: 404 });
-    }
-    
-    // Update expenditure
-    expenditures[expenditureIndex] = {
-      ...expenditures[expenditureIndex],
-      ...updateData,
-      updatedAt: new Date().toISOString()
-    };
-    
-    saveExpenditures(expenditures);
-    
-    return NextResponse.json({ expenditure: expenditures[expenditureIndex] });
+    const id = searchParams.get('id');
+    if (!id) return NextResponse.json({ error: 'Expenditure ID required' }, { status: 400 });
+
+    const body = await request.json();
+    const updates: any = { updated_at: new Date().toISOString() };
+    if (body.status) updates.status = body.status;
+    if (body.amount !== undefined) updates.amount = Number(body.amount);
+    if (body.title) updates.title = body.title;
+    if (body.category) updates.category = body.category;
+    if (body.description) updates.description = body.description;
+    if (body.approvedBy || body.approved_by) updates.approved_by = body.approvedBy || body.approved_by;
+    if (body.approvedAt || body.approved_at) updates.approved_at = body.approvedAt || body.approved_at;
+
+    const { data, error } = await supabaseAdmin.from('expenditures').update(updates).eq('id', id).select().single();
+    if (error) throw error;
+
+    return NextResponse.json({ expenditure: toAppExpenditure(data) });
   } catch (error) {
     console.error('PUT /api/expenditures error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
-// DELETE - Delete expenditure request
+
 export async function DELETE(request: NextRequest) {
   try {
-    const expenditures = loadExpenditures();
     const { searchParams } = new URL(request.url);
-    const expenditureId = searchParams.get('id');
-    
-    if (!expenditureId) {
-      return NextResponse.json({ error: 'Expenditure ID required' }, { status: 400 });
+    const id = searchParams.get('id');
+    if (!id) return NextResponse.json({ error: 'Expenditure ID required' }, { status: 400 });
+
+    // Check status before deleting
+    const { data: exp } = await supabaseAdmin.from('expenditures').select('status').eq('id', id).single();
+    if (exp && exp.status !== 'pending' && exp.status !== 'rejected') {
+      return NextResponse.json({ error: 'Cannot delete approved expenditures' }, { status: 403 });
     }
-    
-    const expenditureIndex = expenditures.findIndex(e => e.id === expenditureId);
-    
-    if (expenditureIndex === -1) {
-      return NextResponse.json({ error: 'Expenditure not found' }, { status: 404 });
-    }
-    
-    // Only allow deletion if status is pending or rejected
-    if (expenditures[expenditureIndex].status !== 'pending' && expenditures[expenditureIndex].status !== 'rejected') {
-      return NextResponse.json({ error: 'Cannot delete approved or completed expenditures' }, { status: 403 });
-    }
-    
-    // Remove expenditure
-    const deletedExpenditure = expenditures.splice(expenditureIndex, 1)[0];
-    saveExpenditures(expenditures);
-    
-    return NextResponse.json({ expenditure: deletedExpenditure, message: 'Expenditure deleted successfully' });
+
+    const { error } = await supabaseAdmin.from('expenditures').delete().eq('id', id);
+    if (error) throw error;
+
+    return NextResponse.json({ message: 'Expenditure deleted successfully' });
   } catch (error) {
     console.error('DELETE /api/expenditures error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
+}
+
+function toAppExpenditure(row: any) {
+  return {
+    id: row.id,
+    title: row.title,
+    amount: row.amount,
+    category: row.category,
+    description: row.description,
+    academicSession: row.session,
+    term: row.term,
+    status: row.status,
+    requestedBy: row.requested_by,
+    requestedByName: row.requested_by_name,
+    approvedBy: row.approved_by,
+    approvedAt: row.approved_at,
+    requestedAt: row.created_at,
+    updatedAt: row.updated_at,
+    createdAt: row.created_at,
+  };
 }
