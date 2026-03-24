@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, UserRole } from '@/types';
 import { findCreatedUser } from '@/lib/demoUsers';
-import { findSharedUser, initializeSharedUsers, syncLocalToShared } from '@/lib/sharedUserStorage';
+import { initializeSharedUsers, syncLocalToShared } from '@/lib/sharedUserStorage';
 import toast from 'react-hot-toast';
 
 interface AuthContextType {
@@ -162,21 +162,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.log('Checking API for created users...');
           try {
             const response = await fetch(`/api/users?email=${encodeURIComponent(normalizedEmail)}&password=${encodeURIComponent(normalizedPassword)}`);
+            console.log('API response status:', response.status);
             if (response.ok) {
               const data = await response.json();
               if (data.user) {
                 console.log('API user found:', data.user.email, 'Role:', data.user.role);
                 demoUser = {
                   ...data.user,
-                  createdAt: new Date(data.user.createdAt),
-                  updatedAt: new Date(data.user.updatedAt)
+                  createdAt: new Date(data.user.createdAt || Date.now()),
+                  updatedAt: new Date(data.user.updatedAt || Date.now()),
                 };
+              } else {
+                console.log('API returned ok but no user:', data);
               }
             } else {
-              console.log('API response not ok:', response.status);
+              const errData = await response.json().catch(() => ({}));
+              console.log('API error response:', response.status, errData);
             }
           } catch (apiError) {
-            console.log('API error:', apiError);
+            console.log('API fetch error:', apiError);
           }
           
           // Fallback to local storage if API fails
@@ -192,22 +196,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               }
             } catch (localError) {
               console.log('Local storage error:', localError);
-            }
-          }
-          
-          // Also check shared storage
-          if (!demoUser) {
-            console.log('Checking shared storage for created users...');
-            try {
-              const sharedUser = await findSharedUser(normalizedEmail, normalizedPassword);
-              if (sharedUser) {
-                console.log('Shared user found:', sharedUser.email, 'Role:', sharedUser.role);
-                demoUser = sharedUser;
-              } else {
-                console.log('No shared user found');
-              }
-            } catch (sharedError) {
-              console.log('Shared storage error:', sharedError);
             }
           }
         }

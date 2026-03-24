@@ -64,14 +64,22 @@ export async function GET(request: NextRequest) {
     }
 
     if (email && password) {
+      // Try exact match first
       const { data, error } = await supabaseAdmin
         .from('users')
         .select('*')
-        .ilike('email', email)
-        .eq('password', password)
+        .ilike('email', email.trim())
         .single();
 
       if (error || !data) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+
+      // Compare passwords with trim to handle accidental whitespace
+      const storedPassword = (data.password || '').trim();
+      const inputPassword = password.trim();
+      if (storedPassword !== inputPassword) {
+        return NextResponse.json({ error: 'Invalid password' }, { status: 404 });
+      }
+
       return NextResponse.json({ user: toAppUser(data) });
     }
 
