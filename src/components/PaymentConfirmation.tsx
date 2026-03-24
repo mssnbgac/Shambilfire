@@ -167,7 +167,38 @@ export default function PaymentConfirmation() {
         }
       };
 
-      // Save payment to storage system for student access
+      // Save payment to Supabase via API (persistent, cross-device)
+      try {
+        await fetch('/api/payments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            studentId: selectedStudent.id,
+            studentName: `${selectedStudent.firstName} ${selectedStudent.lastName}`,
+            admissionNumber: selectedStudent.admissionNumber,
+            receiptNumber,
+            amount: data.amount,
+            paymentType: data.description,
+            feeType: data.description,
+            paymentMethod: data.paymentMethod,
+            bankName: data.bankName,
+            accountNumber: data.accountNumber,
+            transactionId: data.transactionId,
+            notes: data.description,
+            academicSession: data.academicSession,
+            session: data.academicSession,
+            term: data.term,
+            status: 'confirmed',
+            dateIssued: new Date().toISOString(),
+            confirmedBy: user?.id || 'accountant-1',
+            confirmedAt: new Date().toISOString(),
+          }),
+        });
+      } catch (apiErr) {
+        console.warn('API save failed, falling back to localStorage:', apiErr);
+      }
+
+      // Also save to localStorage as fallback
       const savedPayment = saveStudentPayment({
         studentId: selectedStudent.id,
         studentName: `${selectedStudent.firstName} ${selectedStudent.lastName}`,
@@ -185,7 +216,7 @@ export default function PaymentConfirmation() {
         confirmedBy: user?.id || 'accountant-1'
       });
 
-      console.log('Payment saved to storage:', savedPayment);
+      console.log('Payment saved:', savedPayment);
 
       // Save payment confirmation for local display
       saveConfirmedPayment(paymentInfo);

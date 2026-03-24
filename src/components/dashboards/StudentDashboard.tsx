@@ -80,13 +80,33 @@ export default function StudentDashboard() {
   const [upcomingExams, setUpcomingExams] = useState<ExamSchedule[]>([]);
   const notificationRef = useRef<HTMLDivElement>(null);
 
-  const academicSessions = ACADEMIC_SESSIONS;
-  const terms = TERMS;
+  const [fullUserData, setFullUserData] = useState<any>(null);
+
+  // Fetch full user profile from API (has class, admissionNumber etc from Supabase)
+  useEffect(() => {
+    if (user?.email) {
+      fetch(`/api/users?email=${encodeURIComponent(user.email)}&password=_skip_`)
+        .catch(() => null);
+      // Fetch all users and find this one to get full profile
+      fetch('/api/users')
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data?.users) {
+            const found = data.users.find((u: any) => u.email?.toLowerCase() === user.email?.toLowerCase());
+            if (found) setFullUserData(found);
+          }
+        })
+        .catch(() => null);
+    }
+  }, [user?.email]);
 
   // Get student profile data from logged-in user
   const getStudentProfile = () => {
     if (!user) return null;
     
+    // Merge API data (fullUserData) with auth user — API has class, admissionNumber etc
+    const merged = { ...user, ...(fullUserData || {}) };
+
     // Helper function to format parent name from email
     const formatParentName = (email: string) => {
       if (!email) return 'Parent/Guardian';
@@ -96,23 +116,22 @@ export default function StudentDashboard() {
         : namePart.charAt(0).toUpperCase() + namePart.slice(1);
     };
     
-    // Use actual user data instead of demo data
     return {
-      studentId: user.id || 'STU001',
-      admissionNumber: (user as any).admissionNumber || 'SPA/2024/001',
-      class: (user as any).class || 'Not Assigned', // Changed from JSS 2A to show when class is not set
-      academicSession: '2024/2025',
+      studentId: merged.id || 'STU001',
+      admissionNumber: (merged as any).admissionNumber || (merged as any).admission_number || 'Not Assigned',
+      class: (merged as any).classId || (merged as any).class_id || (merged as any).class || 'Not Assigned',
+      academicSession: '2025/2026',
       term: 'First Term',
-      admissionDate: (user as any).createdAt ? new Date(user.createdAt).toLocaleDateString() : '2023-09-15',
-      dateOfBirth: (user as any).dateOfBirth || '2008-05-20',
-      bloodGroup: (user as any).bloodGroup || 'O+',
-      parentName: (user as any).parentEmail ? formatParentName((user as any).parentEmail) : 'Parent/Guardian',
-      parentPhone: (user as any).phoneNumber || '+234 803 401 2480',
-      parentEmail: (user as any).parentEmail || 'parent@example.com',
-      address: (user as any).address || '45, Dan Masani Street, Birnin Gwari, Kaduna State',
+      admissionDate: (merged as any).createdAt ? new Date((merged as any).createdAt).toLocaleDateString() : '2023-09-15',
+      dateOfBirth: (merged as any).dateOfBirth || (merged as any).date_of_birth || '2008-05-20',
+      bloodGroup: (merged as any).bloodGroup || 'O+',
+      parentName: (merged as any).parentEmail ? formatParentName((merged as any).parentEmail) : 'Parent/Guardian',
+      parentPhone: (merged as any).phoneNumber || (merged as any).phone || '+234 803 401 2480',
+      parentEmail: (merged as any).parentEmail || 'parent@example.com',
+      address: (merged as any).address || '45, Dan Masani Street, Birnin Gwari, Kaduna State',
       subjects: ['Mathematics', 'English Language', 'Basic Science', 'Social Studies', 'Civic Education', 'Computer Studies', 'Physical Education', 'Cultural Arts'],
-      medicalConditions: (user as any).medicalConditions || 'None',
-      emergencyContact: (user as any).phoneNumber || '+234 807 938 7958'
+      medicalConditions: (merged as any).medicalConditions || 'None',
+      emergencyContact: (merged as any).phoneNumber || (merged as any).phone || '+234 807 938 7958'
     };
   };
 
@@ -459,13 +478,21 @@ export default function StudentDashboard() {
         address: studentProfile.address
       };
 
-      // Try API first for payments
+      // Try API first for payments - search by studentId AND by name
       let studentPayments: any[] = [];
       try {
-        const response = await fetch(`/api/payments?studentId=${user?.id}&session=${session}&term=${term}`);
-        if (response.ok) {
-          const data = await response.json();
-          studentPayments = data.payments || [];
+        const studentName = `${user?.firstName} ${user?.lastName}`;
+        const [byIdRes, byNameRes] = await Promise.all([
+          fetch(`/api/payments?studentId=${encodeURIComponent(user?.id || '')}&session=${encodeURIComponent(session)}&term=${encodeURIComponent(term)}`),
+          fetch(`/api/payments?studentName=${encodeURIComponent(studentName)}&session=${encodeURIComponent(session)}&term=${encodeURIComponent(term)}`),
+        ]);
+        if (byIdRes.ok) {
+          const d = await byIdRes.json();
+          studentPayments = d.payments || [];
+        }
+        if (studentPayments.length === 0 && byNameRes.ok) {
+          const d = await byNameRes.json();
+          studentPayments = d.payments || [];
         }
       } catch (apiError) {
         console.log('API not available, checking local storage...');

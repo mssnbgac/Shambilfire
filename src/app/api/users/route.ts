@@ -12,6 +12,7 @@ const DEFAULT_USERS = [
 
 // Map DB row → app user shape
 function toAppUser(row: any) {
+  const extra = row.extra_data || {};
   return {
     id: row.id,
     email: row.email,
@@ -22,13 +23,18 @@ function toAppUser(row: any) {
     phoneNumber: row.phone,
     address: row.address,
     classId: row.class_id,
+    class: row.class_id || extra.class || null,
     subjects: row.subjects,
     parentId: row.parent_id,
     childrenIds: row.children_ids,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    // pass through any extra fields stored in the row
-    ...row.extra_data,
+    // Student-specific fields from extra_data
+    admissionNumber: extra.admissionNumber || null,
+    dateOfBirth: extra.dateOfBirth || null,
+    bloodGroup: extra.bloodGroup || null,
+    medicalConditions: extra.medicalConditions || null,
+    parentEmail: extra.parentEmail || null,
   };
 }
 
@@ -91,10 +97,18 @@ export async function POST(request: NextRequest) {
       role: body.role,
       phone: body.phoneNumber || body.phone || null,
       address: body.address || null,
-      class_id: body.classId || body.class_id || null,
+      class_id: body.classId || body.class_id || body.class || null,
       subjects: body.subjects || null,
       parent_id: body.parentId || body.parent_id || null,
       children_ids: body.childrenIds || body.children_ids || null,
+      extra_data: {
+        admissionNumber: body.admissionNumber || null,
+        dateOfBirth: body.dateOfBirth || null,
+        bloodGroup: body.bloodGroup || null,
+        medicalConditions: body.medicalConditions || null,
+        parentEmail: body.parentEmail || null,
+        class: body.class || null,
+      },
     };
 
     const { data, error } = await supabaseAdmin.from('users').insert(row).select().single();
