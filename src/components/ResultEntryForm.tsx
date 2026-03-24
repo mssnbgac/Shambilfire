@@ -4,10 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { useAuth } from '@/contexts/AuthContext';
 import { NIGERIAN_SUBJECTS } from '@/types';
-import { searchStudentByAdmissionNumber, searchStudents, getAllStudents, StudentSearchResult } from '@/lib/studentSearch';
-import { saveStudentGrade } from '@/lib/gradesStorage';
+import { StudentSearchResult } from '@/lib/studentSearch';
 import { ACADEMIC_SESSIONS } from '@/lib/academicSessions';
-import { createNotification } from '@/lib/notificationSystem';
 import toast from 'react-hot-toast';
 
 interface ResultFormData {
@@ -64,38 +62,50 @@ export default function ResultEntryForm() {
     if (selectedClass) {
       fetchClassStudents(selectedClass);
     }
-  }, [selectedClass]);
-
-  useEffect(() => {
-    // Filter students based on search term
-    if (studentSearchTerm.trim()) {
-      const filtered = searchStudents(studentSearchTerm);
-      setFilteredStudents(filtered);
-    } else {
-      setFilteredStudents(students);
-    }
-  }, [studentSearchTerm, students]);
+  }, [selectedClass, students]);
 
   const fetchInitialData = async () => {
     try {
-      // Get all students for search functionality
-      const allStudents = getAllStudents();
-      setStudents(allStudents);
-      setFilteredStudents(allStudents);
+      // Fetch students from API (Supabase) — not localStorage
+      const res = await fetch('/api/users');
+      if (res.ok) {
+        const data = await res.json();
+        const apiStudents: StudentSearchResult[] = (data.users || [])
+          .filter((u: any) => u.role === 'student')
+          .map((u: any) => ({
+            id: u.id,
+            firstName: u.firstName,
+            lastName: u.lastName,
+            email: u.email,
+            admissionNumber: u.admissionNumber || 'N/A',
+            class: u.class || 'Not Assigned',
+            dateOfBirth: u.dateOfBirth || '',
+            bloodGroup: u.bloodGroup || '',
+            parentEmail: u.parentEmail || '',
+            phoneNumber: u.phoneNumber || '',
+            address: u.address || '',
+          }));
+        setStudents(apiStudents);
+        setFilteredStudents(apiStudents);
+      }
 
-      // Create demo classes data from NIGERIAN_CLASSES
-      const { NIGERIAN_CLASSES } = await import('@/types');
-      const classesData = NIGERIAN_CLASSES.map((className, index) => ({
-        id: `class_${index}`,
-        name: className,
-        level: className.includes('Primary') ? 'Primary' : 
-               className.includes('JSS') ? 'Junior Secondary' : 
-               className.includes('SS') ? 'Senior Secondary' : 
-               className.includes('KG') || className.includes('Nursery') ? 'Pre-Primary' : 'Other'
-      }));
-      setClasses(classesData);
+      // Fetch classes from API
+      const classRes = await fetch('/api/classes');
+      if (classRes.ok) {
+        const classData = await classRes.json();
+        if (classData.classes && classData.classes.length > 0) {
+          setClasses(classData.classes.map((c: any) => ({ id: c.id, name: c.name, level: c.level || '' })));
+        } else {
+          // Fall back to NIGERIAN_CLASSES if no classes in DB yet
+          const { NIGERIAN_CLASSES } = await import('@/types');
+          setClasses(NIGERIAN_CLASSES.map((name, i) => ({ id: name, name, level: '' })));
+        }
+      } else {
+        const { NIGERIAN_CLASSES } = await import('@/types');
+        setClasses(NIGERIAN_CLASSES.map((name) => ({ id: name, name, level: '' })));
+      }
 
-      // Create subjects from Nigerian subjects list
+      // Subjects from static list
       const subjectsData = NIGERIAN_SUBJECTS.map((subject, index) => ({
         id: `subject_${index}`,
         name: subject,
@@ -109,37 +119,33 @@ export default function ResultEntryForm() {
   };
 
   const fetchClassStudents = (classId: string) => {
-    try {
-      // Filter students by class
-      const classStudents = students.filter(student => 
-        student.class.toLowerCase().includes(classId.toLowerCase()) ||
-        student.class.replace(/\s+/g, '').toLowerCase() === classId.toLowerCase()
-      );
-      setFilteredStudents(classStudents);
-    } catch (error) {
-      console.error('Error fetching students:', error);
-      toast.error('Failed to load students');
-    }
+    // classId is now either a real class name (from NIGERIAN_CLASSES fallback) or a DB class id
+    // Match students whose class name matches or contains the selected class
+    const classStudents = students.filter(student =>
+      student.class === classId ||
+      student.class.toLowerCase().includes(classId.toLowerCase()) ||
+      classId.toLowerCase().includes(student.class.toLowerCase())
+    );
+    setFilteredStudents(classStudents.length > 0 ? classStudents : students);
   };
 
   const handleStudentSearch = (searchTerm: string) => {
     setStudentSearchTerm(searchTerm);
-    
-    // If it looks like an admission number, try exact search first
-    if (searchTerm.includes('/') || searchTerm.toUpperCase().includes('SPA')) {
-      const exactMatch = searchStudentByAdmissionNumber(searchTerm);
-      if (exactMatch) {
-        setSelectedStudent(exactMatch);
-        setValue('studentId', exactMatch.id);
-        return;
-      }
+    setSelectedStudent(null);
+    setValue('studentId', '');
+
+    if (!searchTerm.trim()) {
+      setFilteredStudents(students);
+      return;
     }
-    
-    // Clear selected student if search term changes
-    if (selectedStudent && !searchTerm.includes(selectedStudent.admissionNumber)) {
-      setSelectedStudent(null);
-      setValue('studentId', '');
-    }
+
+    const lower = searchTerm.toLowerCase();
+    const filtered = students.filter(s =>
+      `${s.firstName} ${s.lastName}`.toLowerCase().includes(lower) ||
+      (s.admissionNumber || '').toLowerCase().includes(lower) ||
+      s.email.toLowerCase().includes(lower)
+    );
+    setFilteredStudents(filtered);
   };
 
   const handleStudentSelect = (student: StudentSearchResult) => {
@@ -184,9 +190,11 @@ export default function ResultEntryForm() {
       // Calculate position (for demo purposes)
       const position = await calculatePosition(data.subjectId, data.classId, data.term, data.academicYear, total);
       
-      // Get subject name
+      // Get subject name and class name
       const subject = subjects.find(s => s.id === data.subjectId);
       const subjectName = subject?.name || 'Unknown Subject';
+      const classObj = classes.find(c => c.id === data.classId);
+      const className = classObj?.name || data.classId;
 
       // Save grade to Supabase via API
       const gradePayload = {
@@ -195,7 +203,7 @@ export default function ResultEntryForm() {
         admissionNumber: selectedStudent.admissionNumber,
         subjectId: data.subjectId,
         subjectName: subjectName,
-        classId: data.classId,
+        classId: className,   // store class name, not a fake index ID
         term: data.term,
         academicYear: data.academicYear,
         assessments: {
@@ -222,11 +230,13 @@ export default function ResultEntryForm() {
           const apiData = await apiRes.json();
           savedGrade = apiData.grade;
         } else {
-          throw new Error('API save failed');
+          const err = await apiRes.json().catch(() => ({}));
+          throw new Error(err.error || 'API save failed');
         }
       } catch (apiErr) {
-        // Fallback to localStorage
-        savedGrade = saveStudentGrade(gradePayload);
+        console.error('Grade save error:', apiErr);
+        toast.error('Failed to save grade. Please try again.');
+        return;
       }
 
       console.log('Grade saved:', savedGrade);
@@ -246,13 +256,7 @@ export default function ResultEntryForm() {
           }),
         });
       } catch {
-        createNotification({
-          studentId: selectedStudent.id,
-          type: 'result',
-          academicSession: data.academicYear,
-          term: data.term,
-          message: `Your ${data.term} result for ${subjectName} (${data.academicYear}) has been uploaded and is ready to download!`,
-        });
+        // notification failure is non-critical
       }
       
       toast.success(`Result entered successfully! 
