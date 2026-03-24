@@ -23,8 +23,8 @@ function toAppUser(row: any) {
     phoneNumber: row.phone,
     address: row.address,
     classId: row.class_id,
-    // class: try class_id first, then extra_data.class
-    class: row.class_id || extra.class || null,
+    // class: prefer extra_data.class (plain text name), fall back to class_id
+    class: extra.class || row.class_id || null,
     subjects: row.subjects,
     parentId: row.parent_id,
     childrenIds: row.children_ids,
@@ -109,8 +109,9 @@ export async function POST(request: NextRequest) {
       role: body.role,
       phone: body.phoneNumber || body.phone || null,
       address: body.address || null,
-      // Store class in class_id — if it's a FK and fails, extra_data.class is the fallback
-      class_id: body.classId || body.class_id || body.class || null,
+      // Only set class_id if it looks like a UUID/numeric FK, not a plain class name string
+      // For students, class is stored in extra_data.class to avoid FK constraint issues
+      class_id: null,
       subjects: body.subjects || null,
       parent_id: body.parentId || body.parent_id || null,
       children_ids: body.childrenIds || body.children_ids || null,
@@ -260,7 +261,7 @@ export async function PATCH(request: NextRequest) {
     if (body.lastName) updates.last_name = body.lastName;
     if (body.phone || body.phoneNumber) updates.phone = body.phone || body.phoneNumber;
     if (body.address) updates.address = body.address;
-    if (body.class || body.classId) updates.class_id = body.class || body.classId;
+    // Don't update class_id to avoid FK issues — class is stored in extra_data
 
     // Merge extra_data
     const currentExtra = current.extra_data || {};

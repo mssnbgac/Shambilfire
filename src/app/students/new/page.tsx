@@ -79,10 +79,17 @@ export default function NewStudentPage() {
       try {
         const response = await fetch('/api/users', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(newUser),
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...newUser,
+            // Explicitly pass all student fields so API stores them in extra_data
+            admissionNumber,
+            dateOfBirth: data.dateOfBirth,
+            class: data.class,
+            parentEmail: data.parentEmail.toLowerCase().trim(),
+            bloodGroup: data.bloodGroup || '',
+            medicalConditions: data.medicalConditions?.trim() || '',
+          }),
         });
         
         if (response.ok) {
