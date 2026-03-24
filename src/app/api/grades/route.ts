@@ -57,9 +57,9 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabaseAdmin.from('grades').insert(row).select().single();
     if (error) throw error;
     return NextResponse.json({ grade: toAppGrade(data) }, { status: 201 });
-  } catch (error) {
+  } catch (error: any) {
     console.error('POST /api/grades error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 });
   }
 }
 
