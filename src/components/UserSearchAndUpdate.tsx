@@ -44,17 +44,24 @@ export default function UserSearchAndUpdate() {
     }
   }, [user]);
 
-  const loadAllUsers = () => {
+  const loadAllUsers = async () => {
     try {
-      const users = getAllUsers();
-      setAllUsers(users);
+      const res = await fetch('/api/users');
+      if (res.ok) {
+        const data = await res.json();
+        setAllUsers((data.users || []).map((u: any) => ({
+          ...u,
+          createdAt: new Date(u.createdAt || Date.now()),
+          updatedAt: new Date(u.updatedAt || Date.now()),
+        })));
+      }
     } catch (error) {
       console.error('Error loading users:', error);
       toast.error('Failed to load users');
     }
   };
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
     if (!searchEmail.trim()) {
       toast.error('Please enter an email address');
       return;
@@ -62,11 +69,20 @@ export default function UserSearchAndUpdate() {
 
     setLoading(true);
     try {
-      const result = searchUserByEmail(searchEmail.trim());
+      const res = await fetch('/api/users');
+      if (!res.ok) throw new Error('Failed to fetch users');
+      const data = await res.json();
+      const found = (data.users || []).find(
+        (u: any) => u.email?.toLowerCase() === searchEmail.trim().toLowerCase()
+      );
+      const result = found ? {
+        ...found,
+        createdAt: new Date(found.createdAt || Date.now()),
+        updatedAt: new Date(found.updatedAt || Date.now()),
+      } : null;
+
       setSearchResult(result);
-      
       if (result) {
-        // Initialize update form with current user data
         setUpdateForm({
           firstName: result.firstName,
           lastName: result.lastName,
@@ -78,7 +94,7 @@ export default function UserSearchAndUpdate() {
           admissionNumber: result.admissionNumber || '',
           dateOfBirth: result.dateOfBirth || '',
           bloodGroup: result.bloodGroup || '',
-          parentEmail: result.parentEmail || ''
+          parentEmail: result.parentEmail || '',
         });
         toast.success('User found!');
       } else {
@@ -98,7 +114,6 @@ export default function UserSearchAndUpdate() {
       return;
     }
 
-    // Validate required fields
     if (!updateForm.firstName?.trim() || !updateForm.lastName?.trim() || !updateForm.email?.trim()) {
       toast.error('First name, last name, and email are required');
       return;
@@ -106,29 +121,52 @@ export default function UserSearchAndUpdate() {
 
     setUpdating(true);
     try {
-      const updatedUser = updateUser(searchResult.id, updateForm);
-      
-      if (updatedUser) {
-        setSearchResult(updatedUser);
-        setAllUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
-        
-        // Broadcast the update for real-time dashboard updates
-        broadcastUserUpdate(updatedUser.id, updateForm);
-        
-        toast.success('User information updated successfully!');
-        setShowUpdateForm(false);
-      } else {
-        toast.error('Failed to update user information');
+      const body: any = {
+        firstName: updateForm.firstName,
+        lastName: updateForm.lastName,
+        phone: updateForm.phoneNumber,
+        address: updateForm.address,
+        admissionNumber: updateForm.admissionNumber,
+        dateOfBirth: updateForm.dateOfBirth,
+        bloodGroup: updateForm.bloodGroup,
+        parentEmail: updateForm.parentEmail,
+        class: updateForm.class,
+      };
+      // Only send password if admin filled it in
+      if (updateForm.password?.trim()) {
+        body.password = updateForm.password.trim();
       }
+
+      const res = await fetch(`/api/users?id=${encodeURIComponent(searchResult.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Update failed');
+      }
+
+      const data = await res.json();
+      const updated = {
+        ...data.user,
+        createdAt: new Date(data.user.createdAt || Date.now()),
+        updatedAt: new Date(data.user.updatedAt || Date.now()),
+      };
+      setSearchResult(updated);
+      setAllUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
+      toast.success('User updated successfully!');
+      setShowUpdateForm(false);
     } catch (error: any) {
       console.error('Error updating user:', error);
-      toast.error(error.message || 'Failed to update user information');
+      toast.error(error.message || 'Failed to update user');
     } finally {
       setUpdating(false);
     }
   };
 
-  const handleUserSelect = (selectedUser: CreatedUser) => {
+  const handleUserSelect = (selectedUser: any) => {
     setSearchResult(selectedUser);
     setSearchEmail(selectedUser.email);
     setUpdateForm({
@@ -142,7 +180,7 @@ export default function UserSearchAndUpdate() {
       admissionNumber: selectedUser.admissionNumber || '',
       dateOfBirth: selectedUser.dateOfBirth || '',
       bloodGroup: selectedUser.bloodGroup || '',
-      parentEmail: selectedUser.parentEmail || ''
+      parentEmail: selectedUser.parentEmail || '',
     });
   };
 

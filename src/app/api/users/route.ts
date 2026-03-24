@@ -25,7 +25,8 @@ function toAppUser(row: any) {
     classId: row.class_id,
     // class: prefer extra_data.class (plain text name), fall back to class_id
     class: extra.class || row.class_id || null,
-    subjects: row.subjects,
+    subjects: extra.subjects || row.subjects || null,
+    classes: extra.classes || null,
     parentId: row.parent_id,
     childrenIds: row.children_ids,
     createdAt: row.created_at,
@@ -36,6 +37,13 @@ function toAppUser(row: any) {
     bloodGroup: extra.bloodGroup || row.blood_group || null,
     medicalConditions: extra.medicalConditions || row.medical_conditions || null,
     parentEmail: extra.parentEmail || row.parent_email || null,
+    parentPhone: extra.parentPhone || row.parent_phone || null,
+    // Teacher-specific fields — stored in extra_data
+    employmentDate: extra.employmentDate || null,
+    qualifications: extra.qualifications || null,
+    experience: extra.experience || null,
+    academicSession: extra.academicSession || null,
+    office: extra.office || null,
   };
 }
 
@@ -95,7 +103,8 @@ export async function GET(request: NextRequest) {
     const { data, error } = await supabaseAdmin.from('users').select('*').order('created_at');
     if (error) throw error;
 
-    const users = (data || []).map(toAppUser).map(({ password: _, ...u }) => u);
+    // Include password in list response (admin-only endpoint, server-side key)
+    const users = (data || []).map(toAppUser);
     return NextResponse.json({ users });
   } catch (error) {
     console.error('GET /api/users error:', error);
@@ -135,12 +144,20 @@ export async function POST(request: NextRequest) {
     };
 
     const extraData = {
+      // Student fields
       admissionNumber: body.admissionNumber || null,
       dateOfBirth: body.dateOfBirth || null,
       bloodGroup: body.bloodGroup || null,
       medicalConditions: body.medicalConditions || null,
       parentEmail: body.parentEmail || null,
+      parentPhone: body.parentPhone || null,
       class: body.class || null,
+      // Teacher fields
+      employmentDate: body.employmentDate || null,
+      qualifications: body.qualifications || null,
+      experience: body.experience || null,
+      academicSession: body.academicSession || null,
+      office: body.office || null,
       // Store password in extra_data as fallback if password column doesn't exist
       password: body.password || null,
     };
@@ -280,6 +297,8 @@ export async function PATCH(request: NextRequest) {
     if (body.lastName) updates.last_name = body.lastName;
     if (body.phone || body.phoneNumber) updates.phone = body.phone || body.phoneNumber;
     if (body.address) updates.address = body.address;
+    // Password: update both top-level column AND extra_data for cross-device compatibility
+    if (body.password !== undefined) updates.password = body.password;
     // Don't update class_id to avoid FK issues — class is stored in extra_data
 
     // Merge extra_data
@@ -290,10 +309,18 @@ export async function PATCH(request: NextRequest) {
     if (body.bloodGroup !== undefined) newExtra.bloodGroup = body.bloodGroup;
     if (body.medicalConditions !== undefined) newExtra.medicalConditions = body.medicalConditions;
     if (body.parentEmail !== undefined) newExtra.parentEmail = body.parentEmail;
+    if (body.parentPhone !== undefined) newExtra.parentPhone = body.parentPhone;
     if (body.class !== undefined) newExtra.class = body.class;
     if (body.password !== undefined) newExtra.password = body.password;
+    // Teacher fields
+    if (body.employmentDate !== undefined) newExtra.employmentDate = body.employmentDate;
+    if (body.qualifications !== undefined) newExtra.qualifications = body.qualifications;
+    if (body.experience !== undefined) newExtra.experience = body.experience;
+    if (body.academicSession !== undefined) newExtra.academicSession = body.academicSession;
+    if (body.office !== undefined) newExtra.office = body.office;
+    if (body.subjects !== undefined) newExtra.subjects = body.subjects;
+    if (body.classes !== undefined) newExtra.classes = body.classes;
     updates.extra_data = newExtra;
-
     // Try update with extra_data; fall back without if column missing
     let data: any, error: any;
     const withExtra = await supabaseAdmin.from('users').update(updates).eq('id', id).select().single();

@@ -16,11 +16,6 @@ import {
   DocumentArrowDownIcon,
 } from '@heroicons/react/24/outline';
 import { useAuth } from '@/contexts/AuthContext';
-import { getChildrenByParent } from '@/lib/parentChildLinking';
-import { getGradesByStudent } from '@/lib/gradesStorage';
-import { getPaymentsByStudent } from '@/lib/paymentsStorage';
-import { getAllUsers } from '@/lib/userManagement';
-import { CreatedUser } from '@/lib/demoUsers';
 import toast from 'react-hot-toast';
 
 interface ChildData {
@@ -33,7 +28,7 @@ interface ChildData {
   recentGrades: any[];
   totalFeesPaid: number;
   pendingFees: number;
-  studentInfo: CreatedUser | null;
+  studentInfo: any | null;
 }
 
 interface ParentStats {
@@ -68,11 +63,8 @@ export default function ParentDashboard() {
 
   useEffect(() => {
     const handleUpdate = (e: CustomEvent) => {
-      const childLinks = getChildrenByParent(user?.id || '');
-      if (childLinks.some(l => l.childId === e.detail.userId)) {
-        fetchParentData();
-        toast.success('Child information updated');
-      }
+      fetchParentData();
+      toast.success('Child information updated');
     };
     window.addEventListener('userDataUpdated', handleUpdate as EventListener);
     return () => window.removeEventListener('userDataUpdated', handleUpdate as EventListener);
@@ -81,28 +73,59 @@ export default function ParentDashboard() {
   const fetchParentData = async () => {
     try {
       if (!user) return;
-      const childLinks = getChildrenByParent(user.id);
-      const allUsers = getAllUsers();
+
+      // Fetch parent-child links from API
+      const linksRes = await fetch(`/api/parent-child-links?parentId=${user.id}`);
+      const linksData = linksRes.ok ? await linksRes.json() : { links: [] };
+      const childLinks: any[] = linksData.links || [];
+
       const childrenData: ChildData[] = [];
       let totalPaid = 0, totalPending = 0;
 
       for (const link of childLinks) {
-        const studentInfo = allUsers.find(u => u.id === link.childId) || null;
-        const grades = getGradesByStudent(link.childId);
-        const avgGrade = grades.length > 0 ? Math.round(grades.reduce((s, g) => s + (g.total || 0), 0) / grades.length) : 0;
-        const payments = getPaymentsByStudent(link.childId);
-        const paid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+        // Fetch student info
+        const studentRes = await fetch(`/api/users?id=${link.childId}`);
+        const studentInfo = studentRes.ok ? (await studentRes.json()).user : null;
+
+        // Fetch grades
+        const gradesRes = await fetch(`/api/grades?studentId=${link.childId}`);
+        const gradesData = gradesRes.ok ? await gradesRes.json() : { grades: [] };
+        const grades: any[] = gradesData.grades || [];
+        const avgGrade = grades.length > 0
+          ? Math.round(grades.reduce((s: number, g: any) => s + (g.total || 0), 0) / grades.length)
+          : 0;
+
+        // Fetch payments
+        const paymentsRes = await fetch(`/api/payments?studentId=${link.childId}`);
+        const paymentsData = paymentsRes.ok ? await paymentsRes.json() : { payments: [] };
+        const payments: any[] = paymentsData.payments || [];
+        const paid = payments.reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0);
         const pending = Math.max(0, 150000 - paid);
         totalPaid += paid;
         totalPending += pending;
+
+        // Fetch attendance rate
+        let attendanceRate = 0;
+        try {
+          const attRes = await fetch(`/api/attendance?studentId=${link.childId}`);
+          if (attRes.ok) {
+            const attData = await attRes.json();
+            const records: any[] = attData.records || [];
+            if (records.length > 0) {
+              const present = records.filter((r: any) => r.status === 'present').length;
+              attendanceRate = Math.round((present / records.length) * 100);
+            }
+          }
+        } catch { /* ignore */ }
+
         childrenData.push({
           id: link.childId,
           name: link.childName,
           admissionNumber: link.childAdmissionNumber,
           class: link.childClass,
           averageGrade: avgGrade,
-          attendance: 95,
-          recentGrades: grades.slice(0, 5).map(g => ({ subject: g.subjectName, score: g.total, grade: g.grade })),
+          attendance: attendanceRate,
+          recentGrades: grades.slice(0, 5).map((g: any) => ({ subject: g.subjectName, score: g.total, grade: g.grade })),
           totalFeesPaid: paid,
           pendingFees: pending,
           studentInfo,
@@ -113,12 +136,8 @@ export default function ParentDashboard() {
         children: childrenData,
         totalFeesPaid: totalPaid,
         pendingFees: totalPending,
-        unreadMessages: 2,
-        upcomingEvents: [
-          { title: 'Parent-Teacher Conference', date: '2024-02-20', type: 'meeting' },
-          { title: 'Mid-term Exams Begin', date: '2024-02-15', type: 'exam' },
-          { title: 'School Sports Day', date: '2024-03-01', type: 'event' },
-        ],
+        unreadMessages: 0,
+        upcomingEvents: [],
       });
     } catch (err) {
       console.error(err);
@@ -272,8 +291,10 @@ export default function ParentDashboard() {
                     { icon: UserIcon, label: 'Full Name', value: child.name },
                     { icon: AcademicCapIcon, label: 'Class', value: child.class },
                     { icon: DocumentArrowDownIcon, label: 'Admission No.', value: child.admissionNumber },
-                    child.studentInfo.dateOfBirth ? { icon: CalendarIcon, label: 'Date of Birth', value: child.studentInfo.dateOfBirth } : null,
+                    child.studentInfo.dateOfBirth ? { icon: CalendarIcon, label: 'Date of Birth', value: (() => { const d = new Date(child.studentInfo.dateOfBirth); return isNaN(d.getTime()) ? child.studentInfo.dateOfBirth : d.toLocaleDateString(); })() } : null,
                     child.studentInfo.address ? { icon: MapPinIcon, label: 'Address', value: child.studentInfo.address } : null,
+                    child.studentInfo.bloodGroup ? { icon: UserIcon, label: 'Blood Group', value: child.studentInfo.bloodGroup } : null,
+                    child.studentInfo.medicalConditions ? { icon: UserIcon, label: 'Medical Conditions', value: child.studentInfo.medicalConditions } : null,
                   ].filter(Boolean).map((item: any) => (
                     <div key={item.label} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
                       <item.icon className="h-4 w-4 text-gray-400 flex-shrink-0" />
@@ -323,7 +344,7 @@ export default function ParentDashboard() {
             <h3 className="text-lg font-bold text-gray-900">Upcoming Events</h3>
           </div>
           <div className="p-6 space-y-3">
-            {stats.upcomingEvents.map((ev, i) => (
+            {stats.upcomingEvents.length > 0 ? stats.upcomingEvents.map((ev, i) => (
               <div key={i} className="flex items-center justify-between p-4 rounded-2xl hover:bg-gray-50 transition-colors duration-200">
                 <div className="flex items-center gap-3">
                   <div className={`w-2 h-2 rounded-full flex-shrink-0 ${ev.type === 'meeting' ? 'bg-blue-500' : ev.type === 'exam' ? 'bg-red-500' : 'bg-emerald-500'}`}></div>
@@ -336,7 +357,12 @@ export default function ParentDashboard() {
                   {new Date(ev.date).toLocaleDateString()}
                 </span>
               </div>
-            ))}
+            )) : (
+              <div className="text-center py-10">
+                <CalendarIcon className="h-10 w-10 text-gray-200 mx-auto mb-3" />
+                <p className="text-gray-400 text-sm">No upcoming events</p>
+              </div>
+            )}
           </div>
         </div>
       </div>

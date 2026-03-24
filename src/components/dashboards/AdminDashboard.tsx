@@ -18,7 +18,6 @@ import {
   UsersIcon
 } from '@heroicons/react/24/outline';
 import { NIGERIAN_SUBJECTS } from '@/types';
-import { getClasses } from '@/lib/classStorage';
 
 interface DashboardStats {
   totalStudents: number;
@@ -57,13 +56,20 @@ export default function AdminDashboard() {
         teachers = users.filter((u) => u.role === 'teacher').length;
       }
 
-      // Classes from localStorage
-      const classes = getClasses();
+      // Classes from API
+      let classCount = 0;
+      try {
+        const classRes = await fetch('/api/classes');
+        if (classRes.ok) {
+          const classData = await classRes.json();
+          classCount = (classData.classes || []).length;
+        }
+      } catch {}
 
       setStats({
         totalStudents: students,
         totalTeachers: teachers,
-        totalClasses: classes.length,
+        totalClasses: classCount,
         totalSubjects: NIGERIAN_SUBJECTS.length,
         pendingFees: 0,
         recentActivities: []

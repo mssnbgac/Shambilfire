@@ -13,17 +13,24 @@ import {
 } from '@heroicons/react/24/outline';
 import { useAuth } from '@/contexts/AuthContext';
 import { NIGERIAN_CLASSES, NIGERIAN_SUBJECTS } from '@/types';
-import { 
-  getExamSchedules, 
-  saveExamSchedule, 
-  updateExamSchedule, 
-  deleteExamSchedule, 
-  initializeDemoExams,
-  type ExamSchedule 
-} from '@/lib/examStorage';
 import { createNotification } from '@/lib/notificationSystem';
 import { getAllStudents } from '@/lib/studentSearch';
 import toast from 'react-hot-toast';
+
+export interface ExamSchedule {
+  id: string;
+  subject: string;
+  class: string;
+  date: string;
+  time: string;
+  duration: number;
+  venue: string;
+  examiner: string;
+  type: 'midterm' | 'final' | 'quiz' | 'practical';
+  status: 'scheduled' | 'ongoing' | 'completed' | 'cancelled';
+  createdAt?: Date;
+  updatedAt?: Date;
+}
 
 export default function ExamScheduler() {
   const { user } = useAuth();
@@ -55,13 +62,15 @@ export default function ExamScheduler() {
 
   useEffect(() => {
     loadExamSchedules();
-    initializeDemoExams();
   }, []);
 
-  const loadExamSchedules = () => {
+  const loadExamSchedules = async () => {
     try {
-      const schedules = getExamSchedules();
-      setExams(schedules);
+      const res = await fetch('/api/exams');
+      if (res.ok) {
+        const data = await res.json();
+        setExams(data.exams || []);
+      }
     } catch (error) {
       console.error('Error loading exam schedules:', error);
     } finally {
@@ -101,20 +110,14 @@ export default function ExamScheduler() {
     setShowForm(true);
   };
 
-  const handleDeleteExam = (examId: string) => {
+  const handleDeleteExam = async (examId: string) => {
     if (confirm('Are you sure you want to delete this exam?')) {
-      const success = deleteExamSchedule(examId);
-      if (success) {
+      try {
+        const res = await fetch(`/api/exams?id=${examId}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Delete failed');
         setExams(prev => prev.filter(exam => exam.id !== examId));
-        
-        // Trigger storage event for real-time updates
-        window.dispatchEvent(new StorageEvent('storage', {
-          key: 'shambil_exams',
-          newValue: JSON.stringify(getExamSchedules())
-        }));
-        
         toast.success('Exam deleted successfully');
-      } else {
+      } catch {
         toast.error('Failed to delete exam');
       }
     }
@@ -156,34 +159,28 @@ export default function ExamScheduler() {
 
     try {
       if (editingExam) {
-        const success = updateExamSchedule(editingExam.id, formData);
-
-        if (success) {
-          setExams(prev => prev.map(exam =>
-            exam.id === editingExam.id ? { ...exam, ...formData, updatedAt: new Date() } : exam
-          ));
-          
-          // Notify students of exam update
-          notifyStudentsOfExam(formData);
-          toast.success('Exam updated successfully');
-        } else {
-          toast.error('Failed to update exam');
-        }
+        const res = await fetch(`/api/exams?id=${editingExam.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData),
+        });
+        if (!res.ok) throw new Error('Update failed');
+        const data = await res.json();
+        setExams(prev => prev.map(exam => exam.id === editingExam.id ? data.exam : exam));
+        notifyStudentsOfExam(formData);
+        toast.success('Exam updated successfully');
       } else {
-        const newExam = saveExamSchedule(formData);
-        setExams(prev => [...prev, newExam]);
-        
-        // Notify students of new exam
+        const res = await fetch('/api/exams', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData),
+        });
+        if (!res.ok) throw new Error('Create failed');
+        const data = await res.json();
+        setExams(prev => [...prev, data.exam]);
         notifyStudentsOfExam(formData);
         toast.success(`${formData.subject} exam scheduled successfully`);
       }
-
-      // Trigger storage event for real-time updates
-      window.dispatchEvent(new StorageEvent('storage', {
-        key: 'shambil_exams',
-        newValue: JSON.stringify(getExamSchedules())
-      }));
-      
       setShowForm(false);
       setEditingExam(null);
     } catch (error) {

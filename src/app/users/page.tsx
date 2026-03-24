@@ -99,24 +99,21 @@ export default function UsersPage() {
     }
   };
 
-  const loadAllUsers = () => {
+  const loadAllUsers = async () => {
     try {
       setLoading(true);
-      
-      // Initialize demo users first
-      initializeDemoUsers();
-      
-      // Get all users from the created users system
-      const createdUsers = getCreatedUsers();
-      
-      // Convert CreatedUser to User format and add demo data
-      const formattedUsers: User[] = createdUsers.map(createdUser => ({
-        ...createdUser, // Include all fields from createdUser
-        lastLogin: getLastLoginDate(createdUser.email),
-        status: 'active' as const
-      }));
-
-      setAllUsers(formattedUsers);
+      const res = await fetch('/api/users');
+      if (res.ok) {
+        const data = await res.json();
+        const formattedUsers: User[] = (data.users || []).map((u: any) => ({
+          ...u,
+          createdAt: new Date(u.createdAt || Date.now()),
+          updatedAt: new Date(u.updatedAt || Date.now()),
+          lastLogin: getLastLoginDate(u.email),
+          status: 'active' as const,
+        }));
+        setAllUsers(formattedUsers);
+      }
     } catch (error) {
       console.error('Error loading users:', error);
     } finally {
@@ -137,25 +134,10 @@ export default function UsersPage() {
     return mockLastLogins[email];
   };
 
-  // Get password for display (in demo mode only)
+  // Get password for display — reads from API-loaded user data
   const getUserPassword = (email: string): string => {
-    // First check hardcoded demo passwords
-    const demoPasswords: {[key: string]: string} = {
-      'admin@shambil.edu.ng': 'admin123',
-      'teacher@shambil.edu.ng': 'teacher123',
-      'student@shambil.edu.ng': 'student123',
-      'parent@shambil.edu.ng': 'parent123',
-      'accountant@shambil.edu.ng': 'accountant123',
-      'examofficer@shambil.edu.ng': 'exam123'
-    };
-
-    if (demoPasswords[email]) {
-      return demoPasswords[email];
-    }
-
-    // For created users, try to get password from the user object
-    const createdUser = allUsers.find(u => u.email === email);
-    return createdUser?.password || '••••••••';
+    const found = allUsers.find(u => u.email === email);
+    return found?.password || '••••••••';
   };
 
   if (!user || user.role !== 'admin') {

@@ -14,6 +14,7 @@ interface EditForm {
   dateOfBirth: string;
   bloodGroup: string;
   parentEmail: string;
+  parentPhone: string;
   phoneNumber: string;
   address: string;
 }
@@ -25,7 +26,7 @@ export default function StudentsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [editingStudent, setEditingStudent] = useState<StudentSearchResult | null>(null);
   const [editForm, setEditForm] = useState<EditForm>({
-    admissionNumber: '', class: '', dateOfBirth: '', bloodGroup: '', parentEmail: '', phoneNumber: '', address: '',
+    admissionNumber: '', class: '', dateOfBirth: '', bloodGroup: '', parentEmail: '', parentPhone: '', phoneNumber: '', address: '',
   });
   const [saving, setSaving] = useState(false);
 
@@ -51,6 +52,7 @@ export default function StudentsPage() {
       dateOfBirth: student.dateOfBirth || '',
       bloodGroup: student.bloodGroup || '',
       parentEmail: student.parentEmail || '',
+      parentPhone: (student as any).parentPhone || '',
       phoneNumber: student.phoneNumber || '',
       address: student.address || '',
     });
@@ -69,6 +71,7 @@ export default function StudentsPage() {
           dateOfBirth: editForm.dateOfBirth,
           bloodGroup: editForm.bloodGroup,
           parentEmail: editForm.parentEmail,
+          parentPhone: editForm.parentPhone,
           phoneNumber: editForm.phoneNumber,
           address: editForm.address,
         }),
@@ -251,7 +254,17 @@ export default function StudentsPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Parent Phone</label>
+                  <input
+                    type="tel"
+                    value={editForm.parentPhone}
+                    onChange={e => setEditForm(f => ({ ...f, parentPhone: e.target.value }))}
+                    placeholder="Parent/Guardian phone"
+                    className="w-full border border-gray-300 rounded-md py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Student Phone</label>
                   <input
                     type="tel"
                     value={editForm.phoneNumber}

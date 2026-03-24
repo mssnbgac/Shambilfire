@@ -188,8 +188,8 @@ export default function ResultEntryForm() {
       const subject = subjects.find(s => s.id === data.subjectId);
       const subjectName = subject?.name || 'Unknown Subject';
 
-      // Save grade to localStorage (demo mode)
-      const savedGrade = saveStudentGrade({
+      // Save grade to Supabase via API
+      const gradePayload = {
         studentId: selectedStudent.id,
         studentName: `${selectedStudent.firstName} ${selectedStudent.lastName}`,
         admissionNumber: selectedStudent.admissionNumber,
@@ -207,19 +207,53 @@ export default function ResultEntryForm() {
         grade,
         remark: getGradeRemark(grade),
         position: position,
-        teacherId: user?.id || 'unknown'
-      });
+        teacherId: user?.id || 'unknown',
+        enteredBy: user?.id || 'unknown',
+      };
+
+      let savedGrade: any = null;
+      try {
+        const apiRes = await fetch('/api/grades', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(gradePayload),
+        });
+        if (apiRes.ok) {
+          const apiData = await apiRes.json();
+          savedGrade = apiData.grade;
+        } else {
+          throw new Error('API save failed');
+        }
+      } catch (apiErr) {
+        // Fallback to localStorage
+        savedGrade = saveStudentGrade(gradePayload);
+      }
 
       console.log('Grade saved:', savedGrade);
-      
-      // Create notification for student
-      createNotification({
-        studentId: selectedStudent.id,
-        type: 'result',
-        academicSession: data.academicYear,
-        term: data.term,
-        message: `Your ${data.term} result for ${subjectName} (${data.academicYear}) has been uploaded and is ready to download!`
-      });
+
+      // Notify student via API
+      try {
+        await fetch('/api/notifications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            studentId: selectedStudent.id,
+            studentName: `${selectedStudent.firstName} ${selectedStudent.lastName}`,
+            type: 'result',
+            academicSession: data.academicYear,
+            term: data.term,
+            message: `Your ${data.term} result for ${subjectName} (${data.academicYear}) has been uploaded and is ready to download!`,
+          }),
+        });
+      } catch {
+        createNotification({
+          studentId: selectedStudent.id,
+          type: 'result',
+          academicSession: data.academicYear,
+          term: data.term,
+          message: `Your ${data.term} result for ${subjectName} (${data.academicYear}) has been uploaded and is ready to download!`,
+        });
+      }
       
       toast.success(`Result entered successfully! 
       

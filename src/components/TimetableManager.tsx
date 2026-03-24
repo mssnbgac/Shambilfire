@@ -14,14 +14,7 @@ import {
   CheckIcon,
 } from '@heroicons/react/24/outline';
 import { useAuth } from '@/contexts/AuthContext';
-import {
-  getTimetableData,
-  addTimetableEntry,
-  updateTimetableEntry,
-  deleteTimetableEntry,
-  initializeDemoTimetable,
-  TimetableEntry,
-} from '@/lib/timetableStorage';
+import { TimetableEntry } from '@/lib/timetableStorage';
 import { NIGERIAN_CLASSES, NIGERIAN_SUBJECTS } from '@/types';
 import toast from 'react-hot-toast';
 
@@ -74,27 +67,22 @@ export default function TimetableManager() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   useEffect(() => {
-    initializeDemoTimetable();
-  }, []);
-
-  useEffect(() => {
     loadTimetableData();
   }, [selectedClass]);
 
-  const loadTimetableData = () => {
+  const loadTimetableData = async () => {
     try {
-      const raw = getTimetableData();
-      const formatted: ClassSchedule = {};
-      Object.keys(raw).forEach((cls) => {
-        const entries: TimetableEntry[] = [];
-        Object.keys(raw[cls]).forEach((day) => {
-          Object.keys(raw[cls][day]).forEach((time) => {
-            entries.push(raw[cls][day][time]);
-          });
+      setLoading(true);
+      const res = await fetch(`/api/timetable?class=${encodeURIComponent(selectedClass)}`);
+      if (res.ok) {
+        const data = await res.json();
+        const formatted: ClassSchedule = {};
+        (data.entries || []).forEach((e: TimetableEntry) => {
+          if (!formatted[e.class]) formatted[e.class] = [];
+          formatted[e.class].push(e);
         });
-        formatted[cls] = entries;
-      });
-      setTimetable(formatted);
+        setTimetable(formatted);
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -121,37 +109,51 @@ export default function TimetableManager() {
     setDeleteConfirm(entry.id);
   };
 
-  const confirmDelete = (entry: TimetableEntry) => {
-    deleteTimetableEntry(selectedClass, entry.day, entry.time);
-    setTimetable((prev) => ({
-      ...prev,
-      [selectedClass]: (prev[selectedClass] || []).filter((e) => e.id !== entry.id),
-    }));
-    window.dispatchEvent(new StorageEvent('storage', { key: 'shambil_timetables' }));
-    toast.success('Entry deleted');
+  const confirmDelete = async (entry: TimetableEntry) => {
+    try {
+      const res = await fetch(`/api/timetable?id=${entry.id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Delete failed');
+      setTimetable((prev) => ({
+        ...prev,
+        [selectedClass]: (prev[selectedClass] || []).filter((e) => e.id !== entry.id),
+      }));
+      toast.success('Entry deleted');
+    } catch {
+      toast.error('Failed to delete entry');
+    }
     setDeleteConfirm(null);
   };
 
-  const handleFormSubmit = (formData: { subject: string; teacher: string; room: string }) => {
+  const handleFormSubmit = async (formData: { subject: string; teacher: string; room: string }) => {
     try {
       if (editingEntry?.id) {
-        updateTimetableEntry(editingEntry.id, formData);
-        loadTimetableData();
+        const res = await fetch(`/api/timetable?id=${editingEntry.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData),
+        });
+        if (!res.ok) throw new Error('Update failed');
+        await loadTimetableData();
         toast.success('Entry updated');
       } else if (pendingSlot) {
-        const newEntry = addTimetableEntry({
-          day: pendingSlot.day,
-          time: pendingSlot.time,
-          subject: formData.subject,
-          teacher: formData.teacher,
-          class: selectedClass,
-          room: formData.room,
+        const res = await fetch('/api/timetable', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            day: pendingSlot.day,
+            time: pendingSlot.time,
+            subject: formData.subject,
+            teacher: formData.teacher,
+            class: selectedClass,
+            room: formData.room,
+          }),
         });
+        if (!res.ok) throw new Error('Add failed');
+        const data = await res.json();
         setTimetable((prev) => ({
           ...prev,
-          [selectedClass]: [...(prev[selectedClass] || []), newEntry],
+          [selectedClass]: [...(prev[selectedClass] || []), data.entry],
         }));
-        window.dispatchEvent(new StorageEvent('storage', { key: 'shambil_timetables' }));
         toast.success('Entry added');
       }
       setShowForm(false);

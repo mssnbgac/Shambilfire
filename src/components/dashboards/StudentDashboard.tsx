@@ -37,8 +37,8 @@ import { getGradesByStudentAndSession, getGradesByStudent, getStudentGrades, ini
 import { getPaymentsByStudentAndSession, getPaymentsByStudent, getStudentPayments, initializeDemoPayments, type StudentPayment } from '@/lib/paymentsStorage';
 import { ACADEMIC_SESSIONS, TERMS } from '@/lib/academicSessions';
 import { getStudentNotificationsFromAPI, markNotificationAsReadAPI, type StudentNotification } from '@/lib/notificationSystem';
-import { getTodayScheduleForClass, initializeDemoTimetable, type TimetableEntry } from '@/lib/timetableStorage';
-import { getUpcomingExamsForClass, initializeDemoExams, type ExamSchedule } from '@/lib/examStorage';
+import { type TimetableEntry } from '@/lib/timetableStorage';
+import { type ExamSchedule } from '@/lib/examStorage';
 
 interface StudentStats {
   currentGrade: string;
@@ -116,31 +116,48 @@ export default function StudentDashboard() {
     // Merge API data (fullUserData) with auth user — API has class, admissionNumber etc
     const merged = { ...user, ...(fullUserData || {}) };
 
-    // Helper function to format parent name from email
     const formatParentName = (email: string) => {
       if (!email) return 'Parent/Guardian';
       const namePart = email.split('@')[0];
-      return namePart.includes('.') 
+      return namePart.includes('.')
         ? namePart.split('.').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')
         : namePart.charAt(0).toUpperCase() + namePart.slice(1);
     };
-    
+
+    // class is stored in extra_data.class → API returns it as `class`
+    const studentClass = (merged as any).class || (merged as any).classId || (merged as any).class_id || 'Not Assigned';
+
+    // Safe date formatter — returns 'Not Set' for invalid/missing values
+    const safeDate = (val: any) => {
+      if (!val || val === 'Not Set') return 'Not Set';
+      const d = new Date(val);
+      return isNaN(d.getTime()) ? 'Not Set' : d.toLocaleDateString();
+    };
+
+    // Subjects: prefer API data, fall back to hardcoded list
+    const subjects: string[] = (merged as any).subjects
+      || (fullUserData as any)?.subjects
+      || ['Mathematics', 'English Language', 'Basic Science', 'Social Studies', 'Civic Education', 'Computer Studies', 'Physical Education', 'Cultural Arts'];
+
     return {
       studentId: merged.id || 'STU001',
       admissionNumber: (merged as any).admissionNumber || (merged as any).admission_number || 'Not Assigned',
-      class: (merged as any).classId || (merged as any).class_id || (merged as any).class || 'Not Assigned',
+      class: studentClass,
       academicSession: '2025/2026',
       term: 'First Term',
-      admissionDate: (merged as any).createdAt ? new Date((merged as any).createdAt).toLocaleDateString() : '2023-09-15',
-      dateOfBirth: (merged as any).dateOfBirth || (merged as any).date_of_birth || '2008-05-20',
-      bloodGroup: (merged as any).bloodGroup || 'O+',
-      parentName: (merged as any).parentEmail ? formatParentName((merged as any).parentEmail) : 'Parent/Guardian',
-      parentPhone: (merged as any).phoneNumber || (merged as any).phone || '+234 803 401 2480',
-      parentEmail: (merged as any).parentEmail || 'parent@example.com',
-      address: (merged as any).address || '45, Dan Masani Street, Birnin Gwari, Kaduna State',
-      subjects: ['Mathematics', 'English Language', 'Basic Science', 'Social Studies', 'Civic Education', 'Computer Studies', 'Physical Education', 'Cultural Arts'],
-      medicalConditions: (merged as any).medicalConditions || 'None',
-      emergencyContact: (merged as any).phoneNumber || (merged as any).phone || '+234 807 938 7958'
+      admissionDate: safeDate((merged as any).createdAt),
+      dateOfBirth: (merged as any).dateOfBirth || (merged as any).date_of_birth || 'Not Set',
+      dateOfBirthFormatted: safeDate((merged as any).dateOfBirth || (merged as any).date_of_birth),
+      bloodGroup: (merged as any).bloodGroup || (merged as any).blood_group || 'Not Set',
+      parentName: (merged as any).parentEmail ? formatParentName((merged as any).parentEmail) : 'Not Set',
+      // parentPhone is the parent's contact — stored separately from student's own phone
+      parentPhone: (merged as any).parentPhone || (merged as any).parent_phone || 'Not Set',
+      parentEmail: (merged as any).parentEmail || 'Not Set',
+      address: (merged as any).address || 'Not Set',
+      subjects,
+      medicalConditions: (merged as any).medicalConditions || (merged as any).medical_conditions || 'None',
+      // Emergency contact: student's own phone number
+      emergencyContact: (merged as any).phoneNumber || (merged as any).phone || 'Not Set',
     };
   };
 
@@ -150,8 +167,6 @@ export default function StudentDashboard() {
     if (user) {
       fetchStudentData();
       loadNotifications();
-      loadTodaySchedule();
-      loadUpcomingExams();
     }
   }, [user]);
 
@@ -160,8 +175,6 @@ export default function StudentDashboard() {
     // Initialize demo data for testing - only runs once
     initializeDemoGrades();
     initializeDemoPayments();
-    initializeDemoTimetable();
-    initializeDemoExams();
   }, []); // Empty dependency array ensures this runs only once
 
   const loadNotifications = async () => {
@@ -176,60 +189,66 @@ export default function StudentDashboard() {
     // No-op — notifications come from Supabase now
   };
 
-  const loadTodaySchedule = () => {
-    if (!studentProfile?.class) {
-      setTodaySchedule([]);
-      return;
-    }
+  const loadTodaySchedule = async (className?: string) => {
+    const cls = className || studentProfile?.class;
+    if (!cls) { setTodaySchedule([]); return; }
 
-    // Try different class format variations to match timetable data
-    const classVariations = [
-      studentProfile.class,
-      studentProfile.class.replace(/\s+/g, ''), // Remove spaces
-      studentProfile.class.replace(/\s+/g, ' '), // Normalize spaces
-      studentProfile.class.toUpperCase(),
-      studentProfile.class.toLowerCase()
-    ];
-    
-    let schedule: TimetableEntry[] = [];
-    
-    // Try each variation until we find a match
-    for (const classVariation of classVariations) {
-      schedule = getTodayScheduleForClass(classVariation);
-      if (schedule.length > 0) {
-        break;
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const todayName = dayNames[new Date().getDay()];
+
+    try {
+      const res = await fetch(`/api/timetable?class=${encodeURIComponent(cls)}`);
+      if (res.ok) {
+        const data = await res.json();
+        const todayEntries: TimetableEntry[] = (data.entries || [])
+          .filter((e: any) => e.day === todayName)
+          .map((e: any) => ({
+            id: e.id,
+            day: e.day,
+            time: e.time,
+            subject: e.subject,
+            teacher: e.teacher,
+            class: e.class,
+            room: e.room,
+            createdAt: new Date(e.created_at || Date.now()),
+            updatedAt: new Date(e.updated_at || Date.now()),
+          }))
+          .sort((a: TimetableEntry, b: TimetableEntry) => a.time.localeCompare(b.time));
+        setTodaySchedule(todayEntries);
+        return;
       }
-    }
-    
-    setTodaySchedule(schedule);
+    } catch { /* fall through */ }
+    setTodaySchedule([]);
   };
 
-  const loadUpcomingExams = () => {
-    if (!studentProfile?.class) {
-      setUpcomingExams([]);
-      return;
-    }
+  const loadUpcomingExams = async (className?: string) => {
+    const cls = className || studentProfile?.class;
+    if (!cls) { setUpcomingExams([]); return; }
 
-    // Try different class format variations to match exam data
-    const classVariations = [
-      studentProfile.class,
-      studentProfile.class.replace(/\s+/g, ''), // Remove spaces
-      studentProfile.class.replace(/\s+/g, ' '), // Normalize spaces
-      studentProfile.class.toUpperCase(),
-      studentProfile.class.toLowerCase()
-    ];
-    
-    let exams: ExamSchedule[] = [];
-    
-    // Try each variation until we find a match
-    for (const classVariation of classVariations) {
-      exams = getUpcomingExamsForClass(classVariation);
-      if (exams.length > 0) {
-        break;
+    try {
+      const res = await fetch(`/api/exams?class=${encodeURIComponent(cls)}&status=scheduled`);
+      if (res.ok) {
+        const data = await res.json();
+        const now = new Date();
+        const upcoming: ExamSchedule[] = (data.exams || [])
+          .filter((e: any) => new Date(e.date) >= now)
+          .map((e: any) => ({
+            id: e.id,
+            subject: e.subject,
+            class: e.class,
+            date: e.date,
+            time: e.time,
+            duration: e.duration || 120,
+            venue: e.venue || '',
+            examiner: e.examiner || '',
+            type: e.type || 'exam',
+            status: e.status || 'scheduled',
+          }));
+        setUpcomingExams(upcoming);
+        return;
       }
-    }
-    
-    setUpcomingExams(exams);
+    } catch { /* fall through */ }
+    setUpcomingExams([]);
   };
 
   // Add a function to refresh exams (can be called when exam officer updates)
@@ -244,19 +263,16 @@ export default function StudentDashboard() {
     toast.success('Timetable refreshed!');
   };
 
-  // Listen for timetable and exam updates (using storage events)
+  // Re-load schedule and exams once we have the student's class from the API
   useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'shambil_timetables') {
-        loadTodaySchedule();
-      } else if (e.key === 'shambil_exams') {
-        loadUpcomingExams();
-      }
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, [studentProfile?.class]);
+    const cls = (fullUserData as any)?.class || (fullUserData as any)?.classId || (user as any)?.class;
+    if (cls) {
+      loadTodaySchedule(cls);
+      loadUpcomingExams(cls);
+      // Also update the currentGrade stat card when class loads
+      setStats(prev => ({ ...prev, currentGrade: cls }));
+    }
+  }, [fullUserData]);
 
   // Click outside to close notifications
   useEffect(() => {
@@ -278,12 +294,21 @@ export default function StudentDashboard() {
   const fetchStudentData = async () => {
     try {
       if (!user) return;
-      
-      // Get student's recent grades from localStorage (demo mode)
-      const recentGrades = getGradesByStudent(user.id).slice(0, 5);
-      
-      // Convert to the format expected by the component
-      const formattedGrades: Grade[] = recentGrades.map(grade => ({
+
+      // Fetch grades from API
+      let recentGrades: any[] = [];
+      try {
+        const res = await fetch(`/api/grades?studentId=${encodeURIComponent(user.id)}`);
+        if (res.ok) {
+          const data = await res.json();
+          recentGrades = (data.grades || []).slice(0, 5);
+        }
+      } catch {
+        // fallback: try localStorage
+        recentGrades = getGradesByStudent(user.id).slice(0, 5);
+      }
+
+      const formattedGrades: Grade[] = recentGrades.map((grade: any) => ({
         id: grade.id,
         subjectName: grade.subjectName,
         subjectId: grade.subjectId,
@@ -291,21 +316,20 @@ export default function StudentDashboard() {
         academicYear: grade.academicYear,
         total: grade.total,
         grade: grade.grade,
-        createdAt: grade.createdAt
+        createdAt: grade.createdAt,
       }));
 
-      // Calculate average score only if there are grades
-      const averageScore = formattedGrades.length > 0 
-        ? Math.round(formattedGrades.reduce((sum, grade) => sum + (grade.total || 0), 0) / formattedGrades.length)
+      const averageScore = formattedGrades.length > 0
+        ? Math.round(formattedGrades.reduce((sum, g) => sum + (g.total || 0), 0) / formattedGrades.length)
         : 0;
 
       setStats({
         currentGrade: studentProfile?.class || 'Not Assigned',
-        totalSubjects: 8, // This would be calculated from enrolled subjects
+        totalSubjects: 8,
         averageScore,
-        classPosition: 5, // This would be calculated from class rankings
+        classPosition: 5,
         recentGrades: formattedGrades,
-        upcomingExams: [] // This will be loaded separately from exam storage
+        upcomingExams: [],
       });
     } catch (error) {
       console.error('Error fetching student data:', error);
@@ -744,7 +768,7 @@ export default function StudentDashboard() {
                     </div>
                     <div>
                       <p className="text-sm font-medium text-gray-900">Date of Birth</p>
-                      <p className="text-sm text-gray-600">{new Date(studentProfile.dateOfBirth).toLocaleDateString()}</p>
+                      <p className="text-sm text-gray-600">{studentProfile.dateOfBirthFormatted}</p>
                     </div>
                   </div>
 
@@ -796,7 +820,7 @@ export default function StudentDashboard() {
                     </div>
                     <div>
                       <p className="text-sm font-medium text-gray-900">Admission Date</p>
-                      <p className="text-sm text-gray-600">{new Date(studentProfile.admissionDate).toLocaleDateString()}</p>
+                      <p className="text-sm text-gray-600">{studentProfile.admissionDate}</p>
                     </div>
                   </div>
 

@@ -109,10 +109,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const initializeAuth = async () => {
       // Check for stored demo user
       if (isDemoMode) {
-        // Initialize shared users and sync old data
-        await initializeSharedUsers();
-        await syncLocalToShared();
-        
+        // No localStorage sync needed — all users are in Supabase
         const storedUser = localStorage.getItem('demoUser');
         console.log('Stored user in localStorage:', storedUser);
         

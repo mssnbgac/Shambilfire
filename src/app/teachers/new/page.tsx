@@ -95,7 +95,18 @@ export default function NewTeacherPage() {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(newUser),
+          body: JSON.stringify({
+            ...newUser,
+            // Explicitly pass all teacher-specific fields so API stores them in extra_data
+            employmentDate: data.employmentDate,
+            qualifications: data.qualifications?.trim() || '',
+            experience: data.experience?.trim() || '',
+            academicSession: data.academicSession,
+            subjects: data.subjects,
+            classes: data.classes,
+            dateOfBirth: data.dateOfBirth,
+            office: data.office || 'none',
+          }),
         });
         
         if (response.ok) {

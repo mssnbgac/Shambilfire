@@ -60,6 +60,7 @@ export default function TeacherDashboard() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [showProfile, setShowProfile] = useState(false);
+  const [todaySchedule, setTodaySchedule] = useState<any[]>([]);
   const [teacherProfile, setTeacherProfile] = useState<TeacherProfile>({
     teacherId: '',
     academicSession: '2024/2025',
@@ -84,34 +85,55 @@ export default function TeacherDashboard() {
     if (user) fetchTeacherData();
   }, [user]);
 
+  const loadTodaySchedule = async (teacherName?: string) => {
+    const name = teacherName || `${user?.firstName} ${user?.lastName}`;
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const todayName = dayNames[new Date().getDay()];
+    try {
+      const res = await fetch(`/api/timetable?teacher=${encodeURIComponent(name)}`);
+      if (res.ok) {
+        const data = await res.json();
+        const entries = (data.entries || [])
+          .filter((e: any) => e.day === todayName)
+          .sort((a: any, b: any) => a.time.localeCompare(b.time));
+        setTodaySchedule(entries);
+        return;
+      }
+    } catch { /* ignore */ }
+    setTodaySchedule([]);
+  };
+
   const fetchTeacherData = async () => {
     try {
       setLoading(true);
 
-      // Try API first
-      try {
-        const res = await fetch(`/api/users?email=${encodeURIComponent(user?.email || '')}`);
-        if (res.ok) {
-          const data = await res.json();
-          const apiUser = data.users?.find((u: any) => u.email === user?.email && u.role === 'teacher');
-          if (apiUser) {
-            setTeacherProfile({
-              teacherId: apiUser.id,
-              academicSession: apiUser.academicSession || '2024/2025',
-              subjects: apiUser.subjects || [],
-              classes: apiUser.classes || [],
-              qualifications: apiUser.qualifications || 'Not specified',
-              experience: apiUser.experience || 'Not specified',
-              employmentDate: apiUser.employmentDate || '',
-              phoneNumber: apiUser.phoneNumber || '',
-              address: apiUser.address || '',
-              dateOfBirth: apiUser.dateOfBirth || '',
-            });
-            setLoading(false);
-            return;
+      // Fetch by ID for precision (user.id is set from auth)
+      if (user?.id) {
+        try {
+          const res = await fetch(`/api/users?id=${encodeURIComponent(user.id)}`);
+          if (res.ok) {
+            const data = await res.json();
+            const apiUser = data.user;
+            if (apiUser) {
+              setTeacherProfile({
+                teacherId: apiUser.id,
+                academicSession: apiUser.academicSession || '2025/2026',
+                subjects: apiUser.subjects || [],
+                classes: apiUser.classes || [],
+                qualifications: apiUser.qualifications || 'Not specified',
+                experience: apiUser.experience || 'Not specified',
+                employmentDate: apiUser.employmentDate || '',
+                phoneNumber: apiUser.phoneNumber || '',
+                address: apiUser.address || '',
+                dateOfBirth: apiUser.dateOfBirth || '',
+              });
+              loadTodaySchedule(`${apiUser.firstName || user?.firstName} ${apiUser.lastName || user?.lastName}`);
+              setLoading(false);
+              return;
+            }
           }
-        }
-      } catch (_) {}
+        } catch (_) {}
+      }
 
       // Fallback to localStorage
       if (user?.email) {
@@ -119,7 +141,7 @@ export default function TeacherDashboard() {
         if (td && td.role === 'teacher') {
           setTeacherProfile({
             teacherId: td.id,
-            academicSession: (td as any).academicSession || '2024/2025',
+            academicSession: (td as any).academicSession || '2025/2026',
             subjects: (td as any).subjects || [],
             classes: (td as any).classes || [],
             qualifications: (td as any).qualifications || 'Not specified',
@@ -241,7 +263,7 @@ export default function TeacherDashboard() {
                 { icon: EnvelopeIcon, label: 'Email', value: user?.email || '—', color: 'bg-blue-100 text-blue-600' },
                 { icon: PhoneIcon, label: 'Phone', value: teacherProfile.phoneNumber || '—', color: 'bg-violet-100 text-violet-600' },
                 { icon: MapPinIcon, label: 'Address', value: teacherProfile.address || '—', color: 'bg-emerald-100 text-emerald-600' },
-                { icon: CalendarIcon, label: 'Date of Birth', value: teacherProfile.dateOfBirth ? new Date(teacherProfile.dateOfBirth).toLocaleDateString() : '—', color: 'bg-rose-100 text-rose-600' },
+                { icon: CalendarIcon, label: 'Date of Birth', value: teacherProfile.dateOfBirth ? (() => { const d = new Date(teacherProfile.dateOfBirth); return isNaN(d.getTime()) ? teacherProfile.dateOfBirth : d.toLocaleDateString(); })() : '—', color: 'bg-rose-100 text-rose-600' },
               ].map((item) => (
                 <div key={item.label} className="flex items-center gap-4 p-4 bg-gray-50 rounded-2xl">
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${item.color}`}>
@@ -260,7 +282,7 @@ export default function TeacherDashboard() {
               <h4 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Professional</h4>
               {[
                 { icon: BriefcaseIcon, label: 'Teacher ID', value: teacherProfile.teacherId || '—', color: 'bg-orange-100 text-orange-600' },
-                { icon: CalendarIcon, label: 'Employment Date', value: teacherProfile.employmentDate ? new Date(teacherProfile.employmentDate).toLocaleDateString() : '—', color: 'bg-teal-100 text-teal-600' },
+                { icon: CalendarIcon, label: 'Employment Date', value: teacherProfile.employmentDate ? (() => { const d = new Date(teacherProfile.employmentDate); return isNaN(d.getTime()) ? teacherProfile.employmentDate : d.toLocaleDateString(); })() : '—', color: 'bg-teal-100 text-teal-600' },
                 { icon: AcademicCapIcon, label: 'Qualifications', value: teacherProfile.qualifications, color: 'bg-purple-100 text-purple-600' },
                 { icon: StarIcon, label: 'Experience', value: teacherProfile.experience, color: 'bg-yellow-100 text-yellow-600' },
               ].map((item) => (
@@ -407,23 +429,24 @@ export default function TeacherDashboard() {
             </div>
           </div>
           <div className="p-6 space-y-3">
-            {[
-              { time: '8:00 AM', subject: 'Mathematics', class: 'JSS 2A', room: 'Room 101', color: 'bg-violet-500' },
-              { time: '10:00 AM', subject: 'Physics', class: 'SS 3B', room: 'Lab 1', color: 'bg-blue-500' },
-              { time: '12:00 PM', subject: 'Mathematics', class: 'SS 1A', room: 'Room 102', color: 'bg-emerald-500' },
-              { time: '2:00 PM', subject: 'Further Maths', class: 'SS 3A', room: 'Room 103', color: 'bg-orange-500' },
-            ].map((s, i) => (
+            {todaySchedule.length > 0 ? todaySchedule.map((s: any, i: number) => (
               <div key={i} className="flex items-center gap-4 p-4 rounded-2xl hover:bg-gray-50 transition-colors duration-200">
-                <div className={`w-1.5 h-12 ${s.color} rounded-full flex-shrink-0`}></div>
+                <div className="w-1.5 h-12 bg-indigo-500 rounded-full flex-shrink-0"></div>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-gray-900 text-sm">{s.subject}</p>
-                  <p className="text-xs text-gray-400">{s.class} · {s.room}</p>
+                  <p className="text-xs text-gray-400">{s.class} · {s.room || 'TBA'}</p>
                 </div>
                 <span className="text-xs font-medium text-gray-500 bg-gray-100 px-3 py-1.5 rounded-lg flex-shrink-0">
                   {s.time}
                 </span>
               </div>
-            ))}
+            )) : (
+              <div className="text-center py-10">
+                <CalendarIcon className="h-10 w-10 text-gray-200 mx-auto mb-3" />
+                <p className="text-gray-400 text-sm">No classes scheduled for today</p>
+                <p className="text-gray-300 text-xs mt-1">Admin can add your timetable via the Timetable page</p>
+              </div>
+            )}
           </div>
         </div>
 
