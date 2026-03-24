@@ -89,6 +89,45 @@ const DEMO_STUDENTS: StudentSearchResult[] = [
   }
 ];
 
+/** Map an API user object → StudentSearchResult */
+function apiUserToStudent(u: any): StudentSearchResult {
+  return {
+    id: u.id,
+    firstName: u.firstName || u.first_name || '',
+    lastName: u.lastName || u.last_name || '',
+    email: u.email,
+    admissionNumber: u.admissionNumber || u.admission_number || '',
+    class: u.class || u.classId || u.class_id || 'Not Assigned',
+    parentEmail: u.parentEmail || u.parent_email || undefined,
+    phoneNumber: u.phoneNumber || u.phone || undefined,
+    dateOfBirth: u.dateOfBirth || u.date_of_birth || undefined,
+    bloodGroup: u.bloodGroup || u.blood_group || undefined,
+    address: u.address || undefined,
+    createdAt: new Date(u.createdAt || u.created_at || Date.now()),
+  };
+}
+
+/** Fetch all students from Supabase API (async) */
+export const fetchAllStudentsFromAPI = async (): Promise<StudentSearchResult[]> => {
+  try {
+    const res = await fetch('/api/users');
+    if (!res.ok) return DEMO_STUDENTS;
+    const data = await res.json();
+    const apiStudents: StudentSearchResult[] = (data.users || [])
+      .filter((u: any) => u.role === 'student')
+      .map(apiUserToStudent);
+    // Merge: API students override demo students with same id/email
+    const apiIds = new Set(apiStudents.map(s => s.id));
+    const apiEmails = new Set(apiStudents.map(s => s.email.toLowerCase()));
+    const filteredDemo = DEMO_STUDENTS.filter(
+      d => !apiIds.has(d.id) && !apiEmails.has(d.email.toLowerCase())
+    );
+    return [...apiStudents, ...filteredDemo];
+  } catch {
+    return getAllStudents();
+  }
+};
+
 export const getAllStudents = (): StudentSearchResult[] => {
   // Get created users and filter for students
   const createdUsers = getCreatedUsers();

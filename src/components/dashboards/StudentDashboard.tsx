@@ -84,21 +84,30 @@ export default function StudentDashboard() {
 
   // Fetch full user profile from API (has class, admissionNumber etc from Supabase)
   useEffect(() => {
-    if (user?.email) {
-      fetch(`/api/users?email=${encodeURIComponent(user.email)}&password=_skip_`)
-        .catch(() => null);
-      // Fetch all users and find this one to get full profile
-      fetch('/api/users')
+    if (user?.id) {
+      // Fetch by ID for precision
+      fetch(`/api/users?id=${encodeURIComponent(user.id)}`)
         .then(r => r.ok ? r.json() : null)
         .then(data => {
-          if (data?.users) {
-            const found = data.users.find((u: any) => u.email?.toLowerCase() === user.email?.toLowerCase());
-            if (found) setFullUserData(found);
+          if (data?.user) {
+            console.log('[StudentDashboard] fullUserData from API:', data.user);
+            setFullUserData(data.user);
+          } else {
+            // Fallback: scan all users
+            return fetch('/api/users')
+              .then(r => r.ok ? r.json() : null)
+              .then(all => {
+                if (all?.users) {
+                  const found = all.users.find((u: any) => u.id === user.id)
+                    || all.users.find((u: any) => u.email?.toLowerCase() === user.email?.toLowerCase());
+                  if (found) setFullUserData(found);
+                }
+              });
           }
         })
         .catch(() => null);
     }
-  }, [user?.email]);
+  }, [user?.id]);
 
   // Get student profile data from logged-in user
   const getStudentProfile = () => {
@@ -504,8 +513,7 @@ export default function StudentDashboard() {
             parentName: payment.parentName || pdfStudentInfo.parentName,
             parentPhone: payment.parentPhone || pdfStudentInfo.parentPhone,
             address: payment.address || pdfStudentInfo.address,
-          },
-        };
+          },        };
         
         toast.success(`Found payment record confirmed by accountant for ${term}, ${session}`);
       } else {
