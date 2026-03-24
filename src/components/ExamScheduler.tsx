@@ -149,7 +149,7 @@ export default function ExamScheduler() {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!formData.subject || !formData.class || !formData.date || !formData.time || !formData.venue) {
