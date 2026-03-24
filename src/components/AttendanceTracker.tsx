@@ -70,7 +70,7 @@ export default function AttendanceTracker() {
 
       // Filter by teacher's classes if teacher
       if (user?.role === 'teacher') {
-        const classes: string[] = user.classes || [];
+        const classes: string[] = (user as any).classes || [];
         setTeacherClasses(classes);
         if (classes.length > 0) {
           students = students.filter((s: any) =>
