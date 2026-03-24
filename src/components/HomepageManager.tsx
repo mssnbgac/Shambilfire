@@ -96,13 +96,31 @@ export default function HomepageManager() {
   }, []);
 
   const loadGallery = async () => {
+    // Load from localStorage first for instant display
+    try {
+      const cached = localStorage.getItem('shambil_gallery');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        setGalleryImages(parsed.images || []);
+        setGalleryVideos(parsed.videos || []);
+      }
+    } catch {}
+    // Then sync from server
     try {
       const res = await fetch('/api/gallery');
       if (res.ok) {
         const data = await res.json();
         setGalleryImages(data.images || []);
         setGalleryVideos(data.videos || []);
+        // Keep localStorage in sync
+        localStorage.setItem('shambil_gallery', JSON.stringify({ images: data.images || [], videos: data.videos || [] }));
       }
+    } catch {}
+  };
+
+  const syncGalleryToLocalStorage = (images: string[], videos: string[]) => {
+    try {
+      localStorage.setItem('shambil_gallery', JSON.stringify({ images, videos }));
     } catch {}
   };
 
@@ -323,6 +341,7 @@ export default function HomepageManager() {
       if (res.ok) {
         const data = await res.json();
         setGalleryImages(data.images || []);
+        syncGalleryToLocalStorage(data.images || [], galleryVideos);
         toast.success(`${dataUrls.length} photo(s) added to gallery`);
       } else {
         toast.error('Failed to save photos');
@@ -354,6 +373,7 @@ export default function HomepageManager() {
       if (res.ok) {
         const data = await res.json();
         setGalleryVideos(data.videos || []);
+        syncGalleryToLocalStorage(galleryImages, data.videos || []);
         toast.success(`${dataUrls.length} video(s) added to gallery`);
       } else {
         toast.error('Failed to save videos');
@@ -375,6 +395,7 @@ export default function HomepageManager() {
     if (res.ok) {
       const data = await res.json();
       setGalleryImages(data.images || []);
+      syncGalleryToLocalStorage(data.images || [], galleryVideos);
       toast.success('Photo removed');
     }
   };
@@ -388,6 +409,7 @@ export default function HomepageManager() {
     if (res.ok) {
       const data = await res.json();
       setGalleryVideos(data.videos || []);
+      syncGalleryToLocalStorage(galleryImages, data.videos || []);
       toast.success('Video removed');
     }
   };

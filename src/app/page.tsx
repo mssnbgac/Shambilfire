@@ -39,12 +39,26 @@ export default function Home() {
   }, []);
 
   const loadGallery = async () => {
+    // Show cached gallery instantly
+    try {
+      const cached = localStorage.getItem('shambil_gallery');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        setGalleryImages(parsed.images || []);
+        setGalleryVideos(parsed.videos || []);
+        return; // cached data is enough, skip API call
+      }
+    } catch {}
+    // Fallback: fetch from API
     try {
       const res = await fetch('/api/gallery');
       if (res.ok) {
         const data = await res.json();
         setGalleryImages(data.images || []);
         setGalleryVideos(data.videos || []);
+        try {
+          localStorage.setItem('shambil_gallery', JSON.stringify({ images: data.images || [], videos: data.videos || [] }));
+        } catch {}
       }
     } catch {}
   };

@@ -31,7 +31,12 @@ function writeGallery(data: GalleryData) {
 // GET - fetch gallery
 export async function GET() {
   try {
-    return NextResponse.json(readGallery());
+    const data = readGallery();
+    return NextResponse.json(data, {
+      headers: {
+        'Cache-Control': 'no-store',
+      },
+    });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to load gallery' }, { status: 500 });
   }
