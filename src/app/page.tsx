@@ -39,17 +39,16 @@ export default function Home() {
   }, []);
 
   const loadGallery = async () => {
-    // Show cached gallery instantly
+    // Show cached gallery instantly while API loads
     try {
       const cached = localStorage.getItem('shambil_gallery');
       if (cached) {
         const parsed = JSON.parse(cached);
         setGalleryImages(parsed.images || []);
         setGalleryVideos(parsed.videos || []);
-        return; // cached data is enough, skip API call
       }
     } catch {}
-    // Fallback: fetch from API
+    // Always fetch fresh data from API (Supabase)
     try {
       const res = await fetch('/api/gallery');
       if (res.ok) {
