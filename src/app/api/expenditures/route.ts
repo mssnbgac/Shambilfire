@@ -60,7 +60,7 @@ export async function PUT(request: NextRequest) {
     if (!id) return NextResponse.json({ error: 'Expenditure ID required' }, { status: 400 });
 
     const body = await request.json();
-    const updates: any = { updated_at: new Date().toISOString() };
+    const updates: any = {};
     if (body.status) updates.status = body.status;
     if (body.amount !== undefined) updates.amount = Number(body.amount);
     if (body.title) updates.title = body.title;
@@ -68,14 +68,32 @@ export async function PUT(request: NextRequest) {
     if (body.description) updates.description = body.description;
     if (body.approvedBy || body.approved_by) updates.approved_by = body.approvedBy || body.approved_by;
     if (body.approvedAt || body.approved_at) updates.approved_at = body.approvedAt || body.approved_at;
+    if (body.approvedByName || body.approved_by_name) updates.approved_by_name = body.approvedByName || body.approved_by_name;
+    if (body.rejectedReason || body.rejected_reason) updates.rejected_reason = body.rejectedReason || body.rejected_reason;
+    if (body.notes) updates.notes = body.notes;
 
-    const { data, error } = await supabaseAdmin.from('expenditures').update(updates).eq('id', id).select().single();
-    if (error) throw error;
+    // Try with updated_at first, fall back without it
+    let data: any, error: any;
+    const withTs = await supabaseAdmin.from('expenditures').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', id).select().single();
+    if (withTs.error?.message?.includes('updated_at')) {
+      // Column doesn't exist yet — update without it
+      const withoutTs = await supabaseAdmin.from('expenditures').update(updates).eq('id', id).select().single();
+      data = withoutTs.data;
+      error = withoutTs.error;
+    } else {
+      data = withTs.data;
+      error = withTs.error;
+    }
+
+    if (error) {
+      console.error('Supabase PUT expenditure error:', error);
+      throw error;
+    }
 
     return NextResponse.json({ expenditure: toAppExpenditure(data) });
-  } catch (error) {
-    console.error('PUT /api/expenditures error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  } catch (error: any) {
+    console.error('PUT /api/expenditures error:', error?.message || error);
+    return NextResponse.json({ error: 'Internal server error', detail: error?.message }, { status: 500 });
   }
 }
 
@@ -114,9 +132,13 @@ function toAppExpenditure(row: any) {
     requestedBy: row.requested_by,
     requestedByName: row.requested_by_name,
     approvedBy: row.approved_by,
+    approvedByName: row.approved_by_name,
     approvedAt: row.approved_at,
+    rejectedReason: row.rejected_reason,
+    notes: row.notes,
     requestedAt: row.created_at,
     updatedAt: row.updated_at,
     createdAt: row.created_at,
+    priority: row.priority || 'medium',
   };
 }
