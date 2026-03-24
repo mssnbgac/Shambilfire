@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'studentName is required' }, { status: 400 });
     }
 
-    const row = {
+    const baseRow = {
       id: `pay-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
       student_id: body.studentId || body.student_id || null,
       student_name: body.studentName || body.student_name,
@@ -50,9 +50,34 @@ export async function POST(request: NextRequest) {
       notes: body.notes || null,
     };
 
-    const { data, error } = await supabaseAdmin.from('payments').insert(row).select().single();
-    if (error) throw error;
+    // Try inserting with extra columns first; fall back to base row if columns don't exist
+    const extraFields = {
+      receipt_number: body.receiptNumber || body.receipt_number || null,
+      transaction_id: body.transactionId || body.transaction_id || null,
+      payment_method: body.paymentMethod || body.payment_method || null,
+      bank_name: body.bankName || body.bank_name || null,
+      account_number: body.accountNumber || body.account_number || null,
+      admission_number: body.admissionNumber || body.admission_number || null,
+      student_class: body.student_class || body.studentClass || null,
+      date_of_birth: body.date_of_birth || body.dateOfBirth || null,
+      parent_name: body.parent_name || body.parentName || null,
+      parent_phone: body.parent_phone || body.parentPhone || null,
+      address: body.address || null,
+    };
 
+    let data: any, error: any;
+    const withExtra = await supabaseAdmin.from('payments').insert({ ...baseRow, ...extraFields }).select().single();
+    if (withExtra.error?.message?.includes('column') || withExtra.error?.message?.includes('does not exist')) {
+      // Extra columns don't exist yet — insert base only
+      const base = await supabaseAdmin.from('payments').insert(baseRow).select().single();
+      data = base.data;
+      error = base.error;
+    } else {
+      data = withExtra.data;
+      error = withExtra.error;
+    }
+
+    if (error) throw error;
     return NextResponse.json({ payment: toAppPayment(data) }, { status: 201 });
   } catch (error) {
     console.error('POST /api/payments error:', error);
@@ -122,5 +147,18 @@ function toAppPayment(row: any) {
     confirmedAt: row.confirmed_at,
     notes: row.notes,
     createdAt: row.created_at,
+    // Receipt-specific fields (present after ALTER TABLE)
+    receiptNumber: row.receipt_number || row.id,
+    transactionId: row.transaction_id || '',
+    paymentMethod: row.payment_method || 'cash',
+    bankName: row.bank_name || null,
+    accountNumber: row.account_number || null,
+    admissionNumber: row.admission_number || '',
+    studentClass: row.student_class || '',
+    dateOfBirth: row.date_of_birth || '',
+    parentName: row.parent_name || '',
+    parentPhone: row.parent_phone || '',
+    address: row.address || '',
+    description: row.payment_type || row.notes || 'School Fees',
   };
 }

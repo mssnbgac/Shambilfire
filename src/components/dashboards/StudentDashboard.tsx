@@ -36,7 +36,7 @@ import {
 import { getGradesByStudentAndSession, getGradesByStudent, getStudentGrades, initializeDemoGrades, type StudentGrade } from '@/lib/gradesStorage';
 import { getPaymentsByStudentAndSession, getPaymentsByStudent, getStudentPayments, initializeDemoPayments, type StudentPayment } from '@/lib/paymentsStorage';
 import { ACADEMIC_SESSIONS, TERMS } from '@/lib/academicSessions';
-import { getStudentNotifications, markNotificationAsRead, checkAndCreateNotifications, type StudentNotification } from '@/lib/notificationSystem';
+import { getStudentNotificationsFromAPI, markNotificationAsReadAPI, type StudentNotification } from '@/lib/notificationSystem';
 import { getTodayScheduleForClass, initializeDemoTimetable, type TimetableEntry } from '@/lib/timetableStorage';
 import { getUpcomingExamsForClass, initializeDemoExams, type ExamSchedule } from '@/lib/examStorage';
 
@@ -143,11 +143,6 @@ export default function StudentDashboard() {
       loadNotifications();
       loadTodaySchedule();
       loadUpcomingExams();
-      
-      // Add demo notifications for testing if none exist
-      setTimeout(() => {
-        addDemoNotifications();
-      }, 500);
     }
   }, [user]);
 
@@ -160,51 +155,16 @@ export default function StudentDashboard() {
     initializeDemoExams();
   }, []); // Empty dependency array ensures this runs only once
 
-  const loadNotifications = () => {
+  const loadNotifications = async () => {
     if (user?.id) {
-      checkAndCreateNotifications(user.id);
-      const studentNotifications = getStudentNotifications(user.id);
-      setNotifications(studentNotifications);
+      const apiNotifs = await getStudentNotificationsFromAPI(user.id);
+      setNotifications(apiNotifs);
     }
   };
 
   // Add demo notifications for testing (only if no notifications exist)
   const addDemoNotifications = () => {
-    if (!user?.id || notifications.length > 0) return;
-
-    // Create some demo notifications
-    const demoNotifications = [
-      {
-        studentId: user.id,
-        type: 'result' as const,
-        academicSession: '2024/2025',
-        term: 'First Term',
-        message: 'Your First Term results for 2024/2025 are ready to download!'
-      },
-      {
-        studentId: user.id,
-        type: 'payment' as const,
-        academicSession: '2024/2025',
-        term: 'Second Term',
-        message: 'Your payment receipt for Second Term, 2024/2025 is ready to download!'
-      },
-      {
-        studentId: user.id,
-        type: 'both' as const,
-        academicSession: '2023/2024',
-        term: 'Third Term',
-        message: 'Your Third Term results and payment receipt for 2023/2024 are ready to download!'
-      }
-    ];
-
-    // Add notifications using the createNotification function
-    const { createNotification } = require('@/lib/notificationSystem');
-    demoNotifications.forEach(notif => {
-      createNotification(notif);
-    });
-    
-    // Reload notifications
-    loadNotifications();
+    // No-op — notifications come from Supabase now
   };
 
   const loadTodaySchedule = () => {
@@ -525,17 +485,26 @@ export default function StudentDashboard() {
         const payment = studentPayments[0]; // Use the first payment found
         
         paymentInfo = {
-          receiptNumber: payment.receiptNumber,
-          dateIssued: payment.dateIssued,
-          transactionId: payment.transactionId,
+          receiptNumber: payment.receiptNumber || payment.id,
+          dateIssued: payment.dateIssued || payment.createdAt,
+          transactionId: payment.transactionId || '',
           amount: payment.amount,
-          paymentMethod: payment.paymentMethod,
+          paymentMethod: payment.paymentMethod || 'cash',
           bankName: payment.bankName,
           accountNumber: payment.accountNumber,
-          description: payment.description,
-          academicSession: payment.academicSession,
-          term: payment.term,
-          studentInfo: pdfStudentInfo
+          description: payment.description || payment.paymentType || payment.feeType || 'School Fees',
+          academicSession: payment.academicSession || session,
+          term: payment.term || term,
+          studentInfo: {
+            ...pdfStudentInfo,
+            // Override with payment-stored student info if available
+            admissionNumber: payment.admissionNumber || pdfStudentInfo.admissionNumber,
+            class: payment.studentClass || pdfStudentInfo.class,
+            dateOfBirth: payment.dateOfBirth || pdfStudentInfo.dateOfBirth,
+            parentName: payment.parentName || pdfStudentInfo.parentName,
+            parentPhone: payment.parentPhone || pdfStudentInfo.parentPhone,
+            address: payment.address || pdfStudentInfo.address,
+          },
         };
         
         toast.success(`Found payment record confirmed by accountant for ${term}, ${session}`);
@@ -662,7 +631,7 @@ export default function StudentDashboard() {
                             key={notification.id}
                             className={`p-4 hover:bg-gray-50 cursor-pointer ${!notification.read ? 'bg-blue-50' : ''}`}
                             onClick={() => {
-                              markNotificationAsRead(notification.id);
+                              markNotificationAsReadAPI(notification.id);
                               loadNotifications();
                             }}
                           >
@@ -961,7 +930,7 @@ export default function StudentDashboard() {
                     <label className="block text-sm font-medium text-gray-700">Academic Session</label>
                     <select className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
                       <option value="">Select Session</option>
-                      {academicSessions.map((session) => (
+                      {ACADEMIC_SESSIONS.map((session: string) => (
                         <option key={session} value={session}>{session}</option>
                       ))}
                     </select>
@@ -971,7 +940,7 @@ export default function StudentDashboard() {
                     <label className="block text-sm font-medium text-gray-700">Term</label>
                     <select className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
                       <option value="">Select Term</option>
-                      {terms.map((term) => (
+                      {TERMS.map((term: string) => (
                         <option key={term} value={term}>{term}</option>
                       ))}
                     </select>
@@ -1030,7 +999,7 @@ export default function StudentDashboard() {
                       className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-green-500 focus:border-green-500"
                     >
                       <option value="">Select Session</option>
-                      {academicSessions.map((session) => (
+                      {ACADEMIC_SESSIONS.map((session: string) => (
                         <option key={session} value={session}>{session}</option>
                       ))}
                     </select>
@@ -1043,7 +1012,7 @@ export default function StudentDashboard() {
                       className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-green-500 focus:border-green-500"
                     >
                       <option value="">Select Term</option>
-                      {terms.map((term) => (
+                      {TERMS.map((term: string) => (
                         <option key={term} value={term}>{term}</option>
                       ))}
                     </select>

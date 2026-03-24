@@ -72,14 +72,31 @@ export async function PUT(request: NextRequest) {
     if (body.rejectedReason || body.rejected_reason) updates.rejected_reason = body.rejectedReason || body.rejected_reason;
     if (body.notes) updates.notes = body.notes;
 
-    // Try with updated_at first, fall back without it
+    // Try with all optional columns first, fall back to minimal update if columns missing
     let data: any, error: any;
-    const withTs = await supabaseAdmin.from('expenditures').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', id).select().single();
-    if (withTs.error?.message?.includes('updated_at')) {
-      // Column doesn't exist yet — update without it
-      const withoutTs = await supabaseAdmin.from('expenditures').update(updates).eq('id', id).select().single();
-      data = withoutTs.data;
-      error = withoutTs.error;
+    const fullUpdate = { ...updates, updated_at: new Date().toISOString() };
+    const withTs = await supabaseAdmin.from('expenditures').update(fullUpdate).eq('id', id).select().single();
+
+    if (withTs.error) {
+      const msg = withTs.error.message || '';
+      if (msg.includes('column') || msg.includes('does not exist') || withTs.error.code === '42703') {
+        // Some columns don't exist — strip optional ones and retry with just core fields
+        const coreUpdates: any = {};
+        if (updates.status) coreUpdates.status = updates.status;
+        if (updates.amount !== undefined) coreUpdates.amount = updates.amount;
+        if (updates.title) coreUpdates.title = updates.title;
+        if (updates.category) coreUpdates.category = updates.category;
+        if (updates.description) coreUpdates.description = updates.description;
+        if (updates.approved_by) coreUpdates.approved_by = updates.approved_by;
+        if (updates.approved_at) coreUpdates.approved_at = updates.approved_at;
+
+        const fallback = await supabaseAdmin.from('expenditures').update(coreUpdates).eq('id', id).select().single();
+        data = fallback.data;
+        error = fallback.error;
+      } else {
+        data = withTs.data;
+        error = withTs.error;
+      }
     } else {
       data = withTs.data;
       error = withTs.error;
