@@ -64,7 +64,6 @@ export async function GET(request: NextRequest) {
     }
 
     if (email && password) {
-      // Try exact match first
       const { data, error } = await supabaseAdmin
         .from('users')
         .select('*')
@@ -73,9 +72,19 @@ export async function GET(request: NextRequest) {
 
       if (error || !data) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
-      // Compare passwords with trim to handle accidental whitespace
-      const storedPassword = (data.password || '').trim();
-      const inputPassword = password.trim();
+      const inputPassword = String(password).trim();
+
+      // Check password column first, then fall back to extra_data.password
+      const storedPassword = data.password
+        ? String(data.password).trim()
+        : (data.extra_data?.password ? String(data.extra_data.password).trim() : null);
+
+      if (storedPassword === null) {
+        // Password column doesn't exist and not in extra_data — can't verify
+        // Return error so user knows to run the SQL
+        return NextResponse.json({ error: 'User not found' }, { status: 404 });
+      }
+
       if (storedPassword !== inputPassword) {
         return NextResponse.json({ error: 'Invalid password' }, { status: 404 });
       }
@@ -132,6 +141,8 @@ export async function POST(request: NextRequest) {
       medicalConditions: body.medicalConditions || null,
       parentEmail: body.parentEmail || null,
       class: body.class || null,
+      // Store password in extra_data as fallback if password column doesn't exist
+      password: body.password || null,
     };
 
     // Try with extra_data first; fall back without it if column doesn't exist
@@ -280,6 +291,7 @@ export async function PATCH(request: NextRequest) {
     if (body.medicalConditions !== undefined) newExtra.medicalConditions = body.medicalConditions;
     if (body.parentEmail !== undefined) newExtra.parentEmail = body.parentEmail;
     if (body.class !== undefined) newExtra.class = body.class;
+    if (body.password !== undefined) newExtra.password = body.password;
     updates.extra_data = newExtra;
 
     // Try update with extra_data; fall back without if column missing
